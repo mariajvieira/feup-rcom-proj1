@@ -94,11 +94,11 @@ int main(int argc, char *argv[])
     while (STOP == FALSE)
     {
         // Returns after 5 chars have been input
-        int bytes = read(fd, buf, BUF_SIZE);
+        int bytes = read(fd, buf, 5);
         buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
-
-        printf(":%s:%d\n", buf, bytes);
-        if (buf[0] == 'z')
+        for (int i = 0 ; i < 5 ; i++){
+          printf("%02x\n", buf[i]);
+        }
             STOP = TRUE;
     }
 
