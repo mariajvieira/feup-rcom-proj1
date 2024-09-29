@@ -99,7 +99,21 @@ int main(int argc, char *argv[])
         for (int i = 0 ; i < 5 ; i++){
           printf("%02x\n", buf[i]);
         }
+        printf("\n");
+
+        if ((buf[1]^buf[2]) == buf[3]){
+            unsigned char ua[5] = {0};
+            ua[0] = 0x7E;
+            ua[1] = 0x01;
+            ua[2] = 0x07;
+            ua[3] = ua[1]^ua[2];
+            ua[4] = 0x7E;
+
+            write(fd,ua,5);
+             printf("UA sended\n");
             STOP = TRUE;
+        }
+           
     }
 
     // The while() cycle should be changed in order to respect the specifications
