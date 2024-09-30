@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Create string to send
-    unsigned char buf[5] = {0};
+    unsigned char buf[BUF_SIZE] = {0};
 
 
     buf[0] = 0x7E;
@@ -103,13 +103,29 @@ int main(int argc, char *argv[])
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
-    //buf[5] = '\n';
+    buf[5] = '\n';
 
     int bytes = write(fd, buf, 5);
     printf("%d bytes written\n", bytes);
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
+
+    
+    while (STOP == FALSE)
+    {
+        // Returns after 5 chars have been input
+        int bytes = read(fd, buf, 5);
+        buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
+        for (int i = 0 ; i < 5 ; i++){
+          printf("0x%02x\n", buf[i]);
+        }
+        if (buf[0]==0X7E && buf[4]==0X7E && buf[2]==0X07 && (buf[3]==(buf[1]^buf[2]))) {
+            STOP = TRUE;
+            printf("UA received");
+        }
+
+    }
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)

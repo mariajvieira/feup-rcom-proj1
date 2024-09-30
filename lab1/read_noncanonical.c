@@ -97,8 +97,10 @@ int main(int argc, char *argv[])
         int bytes = read(fd, buf, 5);
         buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
         for (int i = 0 ; i < 5 ; i++){
-          printf("%02x\n", buf[i]);
+          printf("0x%02x\n", buf[i]);
         }
+
+        if (buf[0]==0x7E && buf[1]==0x03 && buf[2]==0x03 && buf[3]==(buf[1]^buf[2]) && buf[4]==0x07) 
             STOP = TRUE;
     }
 
