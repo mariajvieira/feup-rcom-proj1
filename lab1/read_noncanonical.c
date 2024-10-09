@@ -16,6 +16,8 @@
 #define TRUE 1
 
 #define BUF_SIZE 256
+typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK,STOPP} States;
+States s = START; 
 
 volatile int STOP = FALSE;
 
@@ -87,6 +89,14 @@ int main(int argc, char *argv[])
    // Loop for input
    unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
 
+   switch (s){
+    case START:
+    case FLAG_RCV:
+    case A_RCV:
+    case C_RCV:
+    case BCC_OK:
+    case STOPP:
+   }    
    while (STOP == FALSE)
    {
        // Returns after 5 chars have been input
