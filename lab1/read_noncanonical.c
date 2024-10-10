@@ -16,8 +16,12 @@
 #define TRUE 1
 
 #define BUF_SIZE 256
+#define FLAG 0x7E
+#define A_SET 0x03    
+#define C_SET 0x03
 typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK,STOPP} States;
 States s = START; 
+
 
 volatile int STOP = FALSE;
 
@@ -65,7 +69,7 @@ int main(int argc, char *argv[])
    // Set input mode (non-canonical, no echo,...)
    newtio.c_lflag = 0;
    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-   newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+   newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
 
    // VTIME e VMIN should be changed in order to protect with a
    // timeout the reception of the following character(s)
@@ -89,37 +93,59 @@ int main(int argc, char *argv[])
    // Loop for input
    unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
 
-   switch (s){
-    case START:
-    case FLAG_RCV:
-    case A_RCV:
-    case C_RCV:
-    case BCC_OK:
-    case STOPP:
-   }    
+ 
    while (STOP == FALSE)
    {
        // Returns after 5 chars have been input
-       int bytes = read(fd, buf, BUF_SIZE);
-       buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
-       for (int i = 0 ; i < 5 ; i++){
-         printf("0x%02x\n", buf[i]);
-       }
-       printf("\n");
+       int bytes = read(fd, buf, 1);
+       
+       unsigned char byte = buf[0];
 
-       if ((buf[1]^buf[2]) == buf[3]){
-           unsigned char ua[5] = {0};
-           ua[0] = 0x7E;
-           ua[1] = 0x01;
-           ua[2] = 0x07;
-           ua[3] = ua[1]^ua[2];
-           ua[4] = 0x7E;
+        switch (s){
+            case START: 
+                if (byte == FLAG) {
+                    s = FLAG_RCV;
+                }
+                break;
 
-           write(fd,ua,BUF_SIZE);
-            printf("UA sended\n");
-           STOP = TRUE;
-       }
-          
+            case FLAG_RCV:
+                if (byte == FLAG) s = FLAG_RCV;
+                else if (byte == A_SET) s = A_RCV;
+                else s = START;  
+                break; 
+
+            case A_RCV:
+                if (byte == FLAG) s = FLAG_RCV;
+                else if (byte == C_SET) s = C_RCV;
+                else s = START;   
+                break;
+
+            case C_RCV:
+                if (byte == FLAG) s = FLAG_RCV;
+                else if (byte == (A_SET^C_SET)) s = BCC_OK;
+                else s = START;  
+                break;
+
+            case BCC_OK:
+                if (byte == FLAG) {
+                    s = STOPP;
+                    STOP = TRUE;
+                    printf("MESSAGE RECEIVED!\n");
+
+                    unsigned char ua[5] = {0};
+                    ua[0] = 0x7E;
+                    ua[1] = 0x01;
+                    ua[2] = 0x07;
+                    ua[3] = ua[1]^ua[2];
+                    ua[4] = 0x7E;
+
+                    write(fd,ua,BUF_SIZE);
+                    printf("UA SENDED\n");
+
+
+                } else s = START; 
+                break;
+        }      
    }
 
 
