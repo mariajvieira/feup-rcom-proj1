@@ -51,7 +51,7 @@ int llopen(LinkLayer connectionParameters)
     timeout = connectionParameters.timeout;
     ret = connectionParameters.nRetransmissions;
 
-    printf("Serial port open");
+    printf("Serial port open\n") ;
     int final = 0;
 
     switch (connectionParameters.role){
@@ -200,7 +200,6 @@ int llopen(LinkLayer connectionParameters)
             return -1;
 
         }
-
     }
 
     return 1;
