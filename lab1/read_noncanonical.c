@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
    // Set input mode (non-canonical, no echo,...)
    newtio.c_lflag = 0;
    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-   newtio.c_cc[VMIN] = 1;  // Blocking read until 5 chars received
+   newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
 
    // VTIME e VMIN should be changed in order to protect with a
    // timeout the reception of the following character(s)
@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
    {
        // Returns after 5 chars have been input
        int bytes = read(fd, buf, 1);
-       
+       if (bytes==0) continue;
        unsigned char byte = buf[0];
 
         switch (s){

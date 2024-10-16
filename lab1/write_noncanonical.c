@@ -17,6 +17,12 @@
 #define TRUE 1
 
 #define BUF_SIZE 256
+#define FLAG 0x7E
+#define A_ 0x03    
+#define C_SET 0x03
+
+typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK, STOPP} States;
+States s = START; 
 
 volatile int STOP = FALSE;
 extern int alarmEnabled;

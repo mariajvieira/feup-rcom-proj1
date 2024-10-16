@@ -18,6 +18,8 @@ int alarmEnabled = FALSE;
 volatile int STOP = FALSE;
 int ret, timeout;
 int fd;
+typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK,STOPP} States;
+States s;
 
 void alarmHandler(int signal)
 {
@@ -46,127 +48,158 @@ int llopen(LinkLayer connectionParameters)
     ret = connectionParameters.nRetransmissions;
 
     printf("Serial port open");
+    int final = 0;
 
-switch (connectionParameters.role){
+    switch (connectionParameters.role){
+        
+        case(LlTx):
+        {
+            s=START;
+            (void) signal (SIGALRM, alarmHandler); //set alarm function handler
+
+            unsigned char buf [BUF_SIZE] = {0};
+            unsigned char receiveT[BUF_SIZE] = {0};
+
+            buf[0] = FLAG;
+            buf[1] = A_T;
+            buf[2] = C_SET;
+            buf[3] = (buf[1])^(buf[2]);
+            buf[4] = FLAG;
+            buf[5] = '\n';
     
-    case(LlTx):
-    {
-        (void) signal (SIGALRM, alarmHandler); //set alarm function handler
 
-        unsigned char buf [BUF_SIZE] = {0}; 
-        unsigned char pass [BUF_SIZE] = {0};
-        unsigned char receive[BUF_SIZE] = {0};
+            while (alarmcount < ret) {
+                if (!alarmEnabled){
+                    int bytesW = writeBytesSerialPort(buf, 5); //send SET in serial port
+                    printf("%d bytes written\n", bytesW);
+                    alarm(timeout);            
+                    alarmEnabled = TRUE;
+                }
 
-        buf[0] = 0x7E;
-        buf[1] = 0x03;
-        buf[2] = 0x03;
-        buf[3] = (buf[1])^(buf[2]);
-        buf[4] = 0x7E;
-        buf[5] = '\n';
 
-        int count = 0 ; 
-        int flag = 0;
-        int final = 0;
+                while (alarmEnabled && !STOP){
+                    int bytesR_T = readByteSerialPort(receiveT); //read in serial port
+                    if (bytesR_T == 0) continue ; //if no byte was received, continue
 
-        while (alarmcount < ret) {
-            if (!alarmEnabled){
-                int bytesW = writeBytesSerialPort (buf, 5); //serial port
-                printf("%d bytes written\n", bytesW);
-                alarm(timeout);            
-                alarmEnabled = TRUE;
+                    unsigned char byteT = receiveT[0];
+                    switch (s) 
+                    {
+                        case START: 
+                            if (byteT==FLAG) s=FLAG_RCV;
+                            break;
+                        
+                        case FLAG_RCV:
+                            if (byteT == FLAG) s = FLAG_RCV;
+                            else if (byteT == A_R) s = A_RCV;
+                            else s = START;  
+                            break; 
+
+                        case A_RCV:
+                            if (byteT == FLAG) s = FLAG_RCV;
+                            else if (byteT == C_UA) s = C_RCV;
+                            else s = START;   
+                            break;
+
+                        case C_RCV:
+                            if (byteT == FLAG) s = FLAG_RCV;
+                            else if (byteT == (A_R^C_UA)) s = BCC_OK;
+                            else s = START;  
+                            break;
+
+                        case BCC_OK:
+                            if (byteT == FLAG) {
+                                s = STOPP;
+                                final=1;
+                                STOP = TRUE;
+                                printf("UA RECEIVED!\n");
+                            } else {
+                                s=START;
+                            }
+                            break;
+                        default:
+                        s=START;
+                        break;
+                    }
+                
+                    if (final){
+                        STOP=TRUE;
+                    }
+
+                }
+                if (STOP) {
+                    break;
+                }
+            
             }
-            while (alarmEnabled && !STOP){
-                int bytesR = readByteSerialPort (pass); //serial port
-                if (bytesR == 0) continue ; //if no byte was received, continue
+            if (STOP) return fd;
+            else return -1;
+        }
+        case (LlRx):
+        {
+            s=START;
+            final=0;
+            unsigned char receiveR[BUF_SIZE] = {0};
+            unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
+            while (!STOP) {
+                int bytesR_R = readByteSerialPort(receiveR);
+                if (bytesR_R==0) continue;
 
-                if (receive[0] == 0) { //if receive[0] = 0 , new message 
-                    count = 0; 
-                }
-
-                if (flag) { // reception error , will start again
-                    count = 1;
-                    receive [0] = 0x7E; // start flag
-                    flag = 0 ;
-                }
-
-                receive [count] = pass[0]; // read buffer (.79) to receive buffer
-
-                printf("buf[%d] = 0x%02X\n", count, (unsigned int)(receive[count]));
-
-                switch (count) {
-                    case 0 : 
-                        if (receive[count] != 0x7E){
-                            receive[0] = 0;
-                        }
+                unsigned char byteR = receiveR[0]; 
+                switch (s) 
+                {
+                    case START: 
+                        if (byteR==FLAG) s=FLAG_RCV;
                         break;
                     
-                    case 1: 
-                        if (receive[count] != 0x03){
-                            if (receive[count] == 0x7E){
-                                flag = 1;
-                            }
-                            else{
-                                receive[0] = 0;
-                            }
-                        }
+                    case FLAG_RCV:
+                        if (byteR == FLAG) s = FLAG_RCV;
+                        else if (byteR == A_T) s = A_RCV;
+                        else s = START;  
+                        break; 
+
+                    case A_RCV:
+                        if (byteR == FLAG) s = FLAG_RCV;
+                        else if (byteR == C_SET) s = C_RCV;
+                        else s = START;   
                         break;
 
-                    case 2:
-                        if (receive[count] != 0x07){
-                            if (receive[count] == 0x07){
-                                flag = 1;
-                            }
-                            else {
-                                receive[0] = 0;
-                            }
-                        }
+                    case C_RCV:
+                        if (byteR == FLAG) s = FLAG_RCV;
+                        else if (byteR == (A_T^C_SET)) s = BCC_OK;
+                        else s = START;  
                         break;
 
-                    case 3:
-                        if (receive[count] != (receive[1] ^ receive [2])){
-                            if (receive[count] == 0x7E) {
-                                flag = 1;
-                            }
-                            else{
-                                receive[0] = 0;
-                            }
-                        }
-                        break;
-
-                    case 4:
-                        if (receive[count] == 0x7E){
+                    case BCC_OK:
+                        if (byteR == FLAG) {
+                            s = STOPP;
+                            final=1;
                             STOP = TRUE;
-                            final = 1;
-                        }
-                        else{
-                            if (receive[count] = 0x7E) {
-                                flag = 1;
-                            }
-                            else{
-                                receive[0] = 0;
-                            }
+                            printf("SET RECEIVED!\n");
+                        } else {
+                            s=START;
                         }
                         break;
-                    
+
                     default:
+                        s=START;
                         break;
-                    
+
                 }
-                count++;
+                
+                if (STOP) {
+                    printf("SET RECEIVED\n");
+                    int bytesW_R = writeBytesSerialPort(ua, BUF_SIZE);
+                    printf("UA SENT: %D BYTES WRITTEN\n", bytesW_R);
+                    return fd;
+                }
+            
             }
 
-            if (final){
-                break;
-            }
+            return -1;
 
         }
-        if (STOP) return fd ; 
-        
+
     }
-
-}
-
-
 
     return 1;
 }
