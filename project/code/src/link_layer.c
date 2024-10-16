@@ -2,6 +2,10 @@
 
 #include "link_layer.h"
 #include "serial_port.h"
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
 #define BUF_SIZE 5
 #define FLAG 0x7E
 #define A_T 0x03
@@ -17,7 +21,7 @@ int alarmcount = 0;
 int alarmEnabled = FALSE;
 volatile int STOP = FALSE;
 int ret, timeout;
-int fd;
+extern int fd;
 typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK,STOPP} States;
 States s;
 
@@ -65,9 +69,7 @@ int llopen(LinkLayer connectionParameters)
             buf[2] = C_SET;
             buf[3] = (buf[1])^(buf[2]);
             buf[4] = FLAG;
-            buf[5] = '\n';
     
-
             while (alarmcount < ret) {
                 if (!alarmEnabled){
                     int bytesW = writeBytesSerialPort(buf, 5); //send SET in serial port
@@ -189,7 +191,7 @@ int llopen(LinkLayer connectionParameters)
                 if (STOP) {
                     printf("SET RECEIVED, SENDING UA\n");
                     int bytesW_R = writeBytesSerialPort(ua, BUF_SIZE);
-                    printf("UA SENT: %D BYTES WRITTEN\n", bytesW_R);
+                    printf("UA SENT: %d BYTES WRITTEN\n", bytesW_R);
                     return fd;
                 }
             
