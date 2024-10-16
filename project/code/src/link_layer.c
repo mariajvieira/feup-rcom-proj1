@@ -71,7 +71,7 @@ int llopen(LinkLayer connectionParameters)
             while (alarmcount < ret) {
                 if (!alarmEnabled){
                     int bytesW = writeBytesSerialPort(buf, 5); //send SET in serial port
-                    printf("%d bytes written\n", bytesW);
+                    printf("SET SENT: %d bytes written\n", bytesW);
                     alarm(timeout);            
                     alarmEnabled = TRUE;
                 }
@@ -187,7 +187,7 @@ int llopen(LinkLayer connectionParameters)
                 }
                 
                 if (STOP) {
-                    printf("SET RECEIVED\n");
+                    printf("SET RECEIVED, SENDING UA\n");
                     int bytesW_R = writeBytesSerialPort(ua, BUF_SIZE);
                     printf("UA SENT: %D BYTES WRITTEN\n", bytesW_R);
                     return fd;
