@@ -131,6 +131,7 @@ int llopen(LinkLayer connectionParameters)
                 if (STOP) {
                     break;
                 }
+                alarmcount++;
             
             }
             if (STOP) return fd;
@@ -230,13 +231,80 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
-    unsigned char SUP_FRAME_SEND[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
+    unsigned char DISC[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
+    unsigned char receiveDISC[BUF_SIZE] = {0};
+    unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
     s=START;
+    int final=0;
+    alarmcount=0;
+    
     (void) signal (SIGALRM, alarmHandler); 
 
-    while (ret!=0 && s!=STOP) {
-        int bytesS = writeBytesSerialPort(SUP_FRAME_SEND, 5);
 
+    while (alarmcount<ret && s!=STOP) {
+        if (!alarmEnabled) {
+            int bytesS = writeBytesSerialPort(DISC, 5);  //SEND DISC
+            alarm(timeout);
+            alarmEnabled=TRUE;
+            printf("DISC SENT!\n");
+        }
+        
+
+        while (alarmEnabled==TRUE && s!=STOP) {
+            int bytesR_DISC = readByteSerialPort(receiveDISC);
+            if (bytesR_DISC==0) continue;
+
+            unsigned char byteR_DISC = receiveDISC[0]; 
+
+            switch (s) 
+            {
+                case START: 
+                    if (byteR_DISC==FLAG) s=FLAG_RCV;
+                    break;
+                
+                case FLAG_RCV:
+                    if (byteR_DISC == FLAG) s = FLAG_RCV;
+                    else if (byteR_DISC == A_T) s = A_RCV;
+                    else s = START;  
+                    break; 
+
+                case A_RCV:
+                    if (byteR_DISC == FLAG) s = FLAG_RCV;
+                    else if (byteR_DISC == C_DISC) s = C_RCV;
+                    else s = START;   
+                    break;
+
+                case C_RCV:
+                    if (byteR_DISC == FLAG) s = FLAG_RCV;
+                    else if (byteR_DISC == (A_T^C_DISC)) s = BCC_OK;
+                    else s = START;  
+                    break;
+
+                case BCC_OK:
+                    if (byteR_DISC == FLAG) {
+                        s = STOPP;
+                        final=1;
+                        STOP = TRUE;
+                        printf("DISC RECEIVED!\n");
+                    } else {
+                        s=START;
+                    }
+                    break;
+
+                default:
+                    s=START;
+                    break;
+
+            }
+                
+        }
+        if (STOP) {
+            printf("DISC RECEIVED, SENDING UA\n");
+            int bytesW_UA = writeBytesSerialPort(ua, BUF_SIZE);
+            printf("UA SENT: %d BYTES WRITTEN\n", bytesW_UA);                    return fd;
+        } else return -1;
+
+        alarmcount++;
     }
 
     int clstat = closeSerialPort();
