@@ -230,8 +230,16 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
-    // TODO
+    unsigned char SUP_FRAME_SEND[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
+    s=START;
+    (void) signal (SIGALRM, alarmHandler); 
+
+    while (ret!=0 && s!=STOP) {
+        int bytesS = writeBytesSerialPort(SUP_FRAME_SEND, 5);
+
+    }
 
     int clstat = closeSerialPort();
     return clstat;
 }
+
