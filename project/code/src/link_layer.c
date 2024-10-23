@@ -194,7 +194,6 @@ int llopen(LinkLayer connectionParameters)
                 } 
             
             }
-
             if (STOP) {
                 printf("SET RECEIVED, SENDING UA\n");
                 int bytesW_R = writeBytesSerialPort(ua, BUF_SIZE);
@@ -233,6 +232,7 @@ int llread(unsigned char *packet)
 int llclose(int showStatistics)
 {
     alarmEnabled=FALSE;
+    STOP = FALSE;
     int final=0;
     unsigned char DISC[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
     unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
@@ -249,11 +249,10 @@ int llclose(int showStatistics)
             
             (void) signal (SIGALRM, alarmHandler); 
             unsigned char receiveDISC[BUF_SIZE] = {0};
-
-
             while (alarmcount<ret && !STOP) {
                 if (!alarmEnabled) {
                     int bytesW_DISC = writeBytesSerialPort(DISC, 5);  //SEND DISC
+                    printf("Written %d bytes \n", bytesW_DISC);
                     alarm(timeout);
                     alarmEnabled=TRUE;
                     printf("DISC SENT first time!\n");
@@ -261,13 +260,14 @@ int llclose(int showStatistics)
                 
 
                 while (alarmEnabled==TRUE && !STOP) {
-                    int bytesR_DISC = readByteSerialPort(receiveDISC);
-                    if (bytesR_DISC==0) continue;
-
+                int bytesR_DISC = readByteSerialPort(receiveDISC);
+                printf("After read: alarmEnabled = %d\n", alarmEnabled);
+                    if (bytesR_DISC == 0) continue;
                     unsigned char byteR_DISC = receiveDISC[0]; 
 
                     switch (s) 
                     {
+                        printf("ggbrr");
                         case START: 
                             if (byteR_DISC==FLAG) s=FLAG_RCV;
                             break;
@@ -298,6 +298,7 @@ int llclose(int showStatistics)
                                 printf("DISC RECEIVED!\n");
                             } else {
                                 s=START;
+                                break;
                             }
                             break;
 
@@ -382,18 +383,22 @@ int llclose(int showStatistics)
                 if (STOP) {
                     printf("DISC RECEIVED, SENDING DISC\n");
                     int bytesW_DISC = writeBytesSerialPort(DISC, 5);
-                    printf("DISC SENT: %d BYTES WRITTEN\n", bytesW_DISC);                  
+                    printf("DISC SENT: %d BYTES WRITTEN\n", bytesW_DISC);
+                    printf("aaaaaaaaaaa\n");  
+                    break;             
                 } else return -1;
 
                 alarmcount++;
             }
-
-
+            alarmcount = 0;
+            s = START;
+            STOP = FALSE;
             while (alarmcount<ret && !STOP) {
-
-                while (alarmEnabled==TRUE && s!=STOP) {
+                printf("aaaaaaaaasa");
+                while (alarmEnabled==TRUE && !STOP) {
                     int bytesR_UA = readByteSerialPort(receiveUA);
                     if (bytesR_UA==0) continue;
+                    printf("bbbb");
 
                     unsigned char byteR_UA = receiveUA[0]; 
 
@@ -426,6 +431,7 @@ int llclose(int showStatistics)
                                 s = STOPP;
                                 final=1;
                                 STOP = TRUE;
+                                printf("aaaaaaa");
                             } else {
                                 s=START;
                             }
@@ -439,6 +445,7 @@ int llclose(int showStatistics)
                         
                 }
                 if (STOP) {
+                    printf("aaaaa");
                     printf("UA RECEIVED\n");    
                     return 0;             
                 } else return 1;
