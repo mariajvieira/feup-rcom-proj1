@@ -237,7 +237,8 @@ int llclose(int showStatistics)
     unsigned char DISC[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
     unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
 
-    printf("role: %s", info.role);
+    printf("role: %d\n", info.role);
+
     switch (info.role) {
         
         case(LlTx):
