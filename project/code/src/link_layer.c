@@ -21,7 +21,9 @@ int alarmcount = 0;
 int alarmEnabled = FALSE;
 volatile int STOP = FALSE;
 int ret, timeout;
-extern int fd;
+int fd2;
+LinkLayer info;
+
 typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK,STOPP} States;
 States s;
 
@@ -41,20 +43,22 @@ void alarmHandler(int signal)
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters)
 {
-    fd = openSerialPort(connectionParameters.serialPort,
+    info=connectionParameters;
+    fd2 = openSerialPort(connectionParameters.serialPort,
                        connectionParameters.baudRate);
     
-    if (fd < 0 ){
+    if (fd2 < 0 ){
         perror(connectionParameters.serialPort);
         exit(-1);
     }
+
     timeout = connectionParameters.timeout;
     ret = connectionParameters.nRetransmissions;
 
     printf("Serial port open\n") ;
     int final = 0;
 
-    switch (connectionParameters.role){
+    switch (connectionParameters.role) {
         
         case(LlTx):
         {
@@ -134,8 +138,8 @@ int llopen(LinkLayer connectionParameters)
                 alarmcount++;
             
             }
-            if (STOP) return fd;
-            else return -1;
+            if (STOP) return 1;
+            else return 0;
         }
         case (LlRx):
         {
@@ -187,19 +191,16 @@ int llopen(LinkLayer connectionParameters)
                         s=START;
                         break;
 
-                }
-                
-                if (STOP) {
-                    printf("SET RECEIVED, SENDING UA\n");
-                    int bytesW_R = writeBytesSerialPort(ua, BUF_SIZE);
-                    printf("UA SENT: %d BYTES WRITTEN\n", bytesW_R);
-                    return fd;
-                }
+                } 
             
             }
 
-            return -1;
-
+            if (STOP) {
+                printf("SET RECEIVED, SENDING UA\n");
+                int bytesW_R = writeBytesSerialPort(ua, BUF_SIZE);
+                printf("UA SENT: %d BYTES WRITTEN\n", bytesW_R);
+                return 1;
+            } else return 0;
         }
     }
 
@@ -211,7 +212,7 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO
+
 
     return 0;
 }
@@ -231,80 +232,222 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
-    unsigned char DISC[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
-    unsigned char receiveDISC[BUF_SIZE] = {0};
-    unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
-    s=START;
+    alarmEnabled=FALSE;
     int final=0;
-    alarmcount=0;
-    
-    (void) signal (SIGALRM, alarmHandler); 
+    unsigned char DISC[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
+    unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
 
-
-    while (alarmcount<ret && s!=STOP) {
-        if (!alarmEnabled) {
-            int bytesS = writeBytesSerialPort(DISC, 5);  //SEND DISC
-            alarm(timeout);
-            alarmEnabled=TRUE;
-            printf("DISC SENT!\n");
-        }
+    printf("role: %s", info.role);
+    switch (info.role) {
         
+        case(LlTx):
+        {
+            s=START;
+            final=0;
+            alarmcount=0;
+            
+            (void) signal (SIGALRM, alarmHandler); 
+            unsigned char receiveDISC[BUF_SIZE] = {0};
 
-        while (alarmEnabled==TRUE && s!=STOP) {
-            int bytesR_DISC = readByteSerialPort(receiveDISC);
-            if (bytesR_DISC==0) continue;
 
-            unsigned char byteR_DISC = receiveDISC[0]; 
-
-            switch (s) 
-            {
-                case START: 
-                    if (byteR_DISC==FLAG) s=FLAG_RCV;
-                    break;
+            while (alarmcount<ret && !STOP) {
+                if (!alarmEnabled) {
+                    int bytesW_DISC = writeBytesSerialPort(DISC, 5);  //SEND DISC
+                    alarm(timeout);
+                    alarmEnabled=TRUE;
+                    printf("DISC SENT first time!\n");
+                }
                 
-                case FLAG_RCV:
-                    if (byteR_DISC == FLAG) s = FLAG_RCV;
-                    else if (byteR_DISC == A_T) s = A_RCV;
-                    else s = START;  
-                    break; 
 
-                case A_RCV:
-                    if (byteR_DISC == FLAG) s = FLAG_RCV;
-                    else if (byteR_DISC == C_DISC) s = C_RCV;
-                    else s = START;   
-                    break;
+                while (alarmEnabled==TRUE && !STOP) {
+                    int bytesR_DISC = readByteSerialPort(receiveDISC);
+                    if (bytesR_DISC==0) continue;
 
-                case C_RCV:
-                    if (byteR_DISC == FLAG) s = FLAG_RCV;
-                    else if (byteR_DISC == (A_T^C_DISC)) s = BCC_OK;
-                    else s = START;  
-                    break;
+                    unsigned char byteR_DISC = receiveDISC[0]; 
 
-                case BCC_OK:
-                    if (byteR_DISC == FLAG) {
-                        s = STOPP;
-                        final=1;
-                        STOP = TRUE;
-                        printf("DISC RECEIVED!\n");
-                    } else {
-                        s=START;
+                    switch (s) 
+                    {
+                        case START: 
+                            if (byteR_DISC==FLAG) s=FLAG_RCV;
+                            break;
+                        
+                        case FLAG_RCV:
+                            if (byteR_DISC == FLAG) s = FLAG_RCV;
+                            else if (byteR_DISC == A_T) s = A_RCV;
+                            else s = START;  
+                            break; 
+
+                        case A_RCV:
+                            if (byteR_DISC == FLAG) s = FLAG_RCV;
+                            else if (byteR_DISC == C_DISC) s = C_RCV;
+                            else s = START;   
+                            break;
+
+                        case C_RCV:
+                            if (byteR_DISC == FLAG) s = FLAG_RCV;
+                            else if (byteR_DISC == (A_T^C_DISC)) s = BCC_OK;
+                            else s = START;  
+                            break;
+
+                        case BCC_OK:
+                            if (byteR_DISC == FLAG) {
+                                s = STOPP;
+                                final=1;
+                                STOP = TRUE;
+                                printf("DISC RECEIVED!\n");
+                            } else {
+                                s=START;
+                            }
+                            break;
+
+                        default:
+                            s=START;
+                            break;
+
                     }
-                    break;
+                        
+                }
+                if (STOP) {
+                    printf("DISC RECEIVED, SENDING UA\n");
+                    int bytesW_UA = writeBytesSerialPort(ua, BUF_SIZE);
+                    printf("UA SENT: %d BYTES WRITTEN\n", bytesW_UA);                  
+                } else return -1;
 
-                default:
-                    s=START;
-                    break;
-
+                alarmcount++;
             }
-                
         }
-        if (STOP) {
-            printf("DISC RECEIVED, SENDING UA\n");
-            int bytesW_UA = writeBytesSerialPort(ua, BUF_SIZE);
-            printf("UA SENT: %d BYTES WRITTEN\n", bytesW_UA);                    return fd;
-        } else return -1;
+        case (LlRx):
+        {
+            s=START;
+            final=0;
+            alarmcount=0;
+     
+            (void) signal (SIGALRM, alarmHandler); 
 
-        alarmcount++;
+            unsigned char receiveDISC[BUF_SIZE] = {0};
+            unsigned char receiveUA[BUF_SIZE] = {0};
+
+
+            while (alarmcount<ret && s!=STOP) {
+
+                while (alarmEnabled==TRUE && !STOP) {
+                    int bytesR_DISC = readByteSerialPort(receiveDISC);
+                    if (bytesR_DISC==0) continue;
+
+                    unsigned char byteR_DISC = receiveDISC[0]; 
+
+                    switch (s) 
+                    {
+                        case START: 
+                            if (byteR_DISC==FLAG) s=FLAG_RCV;
+                            break;
+                        
+                        case FLAG_RCV:
+                            if (byteR_DISC == FLAG) s = FLAG_RCV;
+                            else if (byteR_DISC == A_T) s = A_RCV;
+                            else s = START;  
+                            break; 
+
+                        case A_RCV:
+                            if (byteR_DISC == FLAG) s = FLAG_RCV;
+                            else if (byteR_DISC == C_DISC) s = C_RCV;
+                            else s = START;   
+                            break;
+
+                        case C_RCV:
+                            if (byteR_DISC == FLAG) s = FLAG_RCV;
+                            else if (byteR_DISC == (A_T^C_DISC)) s = BCC_OK;
+                            else s = START;  
+                            break;
+
+                        case BCC_OK:
+                            if (byteR_DISC == FLAG) {
+                                s = STOPP;
+                                final=1;
+                                STOP = TRUE;
+                                printf("DISC RECEIVED!\n");
+                            } else {
+                                s=START;
+                            }
+                            break;
+
+                        default:
+                            s=START;
+                            break;
+
+                    }
+                        
+                }
+                if (STOP) {
+                    printf("DISC RECEIVED, SENDING DISC\n");
+                    int bytesW_DISC = writeBytesSerialPort(DISC, 5);
+                    printf("DISC SENT: %d BYTES WRITTEN\n", bytesW_DISC);                  
+                } else return -1;
+
+                alarmcount++;
+            }
+
+
+            while (alarmcount<ret && !STOP) {
+
+                while (alarmEnabled==TRUE && s!=STOP) {
+                    int bytesR_UA = readByteSerialPort(receiveUA);
+                    if (bytesR_UA==0) continue;
+
+                    unsigned char byteR_UA = receiveUA[0]; 
+
+                    switch (s) 
+                    {
+                        case START: 
+                            if (byteR_UA==FLAG) s=FLAG_RCV;
+                            break;
+                        
+                        case FLAG_RCV:
+                            if (byteR_UA == FLAG) s = FLAG_RCV;
+                            else if (byteR_UA == A_R) s = A_RCV;
+                            else s = START;  
+                            break; 
+
+                        case A_RCV:
+                            if (byteR_UA == FLAG) s = FLAG_RCV;
+                            else if (byteR_UA == C_UA) s = C_RCV;
+                            else s = START;   
+                            break;
+
+                        case C_RCV:
+                            if (byteR_UA== FLAG) s = FLAG_RCV;
+                            else if (byteR_UA == (A_R^C_UA)) s = BCC_OK;
+                            else s = START;  
+                            break;
+
+                        case BCC_OK:
+                            if (byteR_UA == FLAG) {
+                                s = STOPP;
+                                final=1;
+                                STOP = TRUE;
+                            } else {
+                                s=START;
+                            }
+                            break;
+
+                        default:
+                            s=START;
+                            break;
+
+                    }
+                        
+                }
+                if (STOP) {
+                    printf("UA RECEIVED\n");    
+                    return 0;             
+                } else return 1;
+
+                alarmcount++;
+            }
+
+        }
+
+
     }
 
     int clstat = closeSerialPort();
