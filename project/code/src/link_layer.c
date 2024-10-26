@@ -211,7 +211,20 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
+    printf("Entered llwrite %d\n",ret);
+    alarmcount = 0;
+    int size = 6 + bufSize;
+    unsigned char *dm = (unsigned char *)malloc(size);
+    dm[0] = FLAG;
+    dm[1] = A_T;
+    dm[2] = (0 << 6); 
+    dm[3] = dm[1] ^ dm[2]; //BCC1
 
+    unsigned char BCC2 = buf[0];
+    for (int i = 0 ; i < bufSize; i++){
+        dm [i + 4] = buf[i];
+        if (i > 0) BCC2 ^= buf[i];
+    }
 
     return 0;
 }
@@ -221,8 +234,7 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    // TODO
-
+    printf("Entered llread\n");
     return 0;
 }
 
