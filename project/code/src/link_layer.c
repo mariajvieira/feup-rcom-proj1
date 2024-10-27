@@ -15,6 +15,7 @@
 #define C_RR0 0xAA
 #define C_RR1 0xAB
 #define C_REJ0 0x54
+#define C_REJ1 0X55
 #define C_DISC 0x0B
 #define ESC 0x7D
 
@@ -265,7 +266,88 @@ int llopen(LinkLayer connectionParameters)
     size = stuff(stuffed,dm,size);
     stuffed[size] = FLAG;
     size++;
-    
+
+    int count = 0 ; 
+    int acc = 0;
+    int rej = 0 ;
+    unsigned char helper = {0};
+    unsigned char read = {0};
+
+    (void) signal (SIGALRM, alarmHandler);
+
+    while (alarmcount < ret){
+        alarmEnabled = TRUE;
+        alarm(timeout);
+        acc = 0;
+        rej = 0;
+
+        while (acc = 0 & rej == 0 && alarmEnabled){
+            STOP = FALSE;
+            int bytesW = writeBytesSerialPort(stuffed, size); 
+            printf("Written %d bytes \n", bytesW);
+
+                while(alarmEnabled && (!STOP)){
+                    int bytesR = readByteSerialPort(&read);
+                    if (bytesR == 0) continue;
+
+                    switch(s){
+                        case START:
+                        if (read == FLAG) {
+                            s = FLAG_RCV;
+                            }
+                        break;
+                        case FLAG_RCV:
+                        if (read == A_R) {
+                            s = A_RCV;
+                            } 
+                        else if (read == FLAG) {
+                        break;
+                            } 
+                        else {
+                            s = START;
+                            }
+                        break;
+                        case A_RCV:
+                        if (read == ((0 << 7) | C_REJ0) || read == ((1 << 7) | C_REJ1) || 
+                            read == ((0 << 7) | A_R) || read == ((1 << 7) | A_R) || read == C_DISC) {
+                            s = C_RCV;
+                            helper = read;
+                            } 
+                        else if (read == FLAG) {
+                            s = FLAG_RCV;
+                            } 
+                        else {
+                            s = START;
+                            }
+                        break;
+                        case C_RCV:
+                        if (read == (A_T ^ helper)) {
+                            s = BCC_OK;
+                            } 
+                        else if (read == FLAG) {
+                            s = FLAG_RCV;
+                            } 
+                        else {
+                            s = START;
+                            }
+                        break;
+                        case BCC_OK:
+                        if (read == FLAG) {
+                            s = STOPP;
+                            STOP = TRUE;
+                            } 
+                        else {
+                            s = START;
+                            }
+                        break;
+                        default:
+                            s = START;
+                        break;
+                            }
+                }
+        
+        }
+    }
     return 0;
 }
 
