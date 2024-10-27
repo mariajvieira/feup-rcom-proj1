@@ -212,39 +212,38 @@ int llopen(LinkLayer connectionParameters)
 // LLWRITE
 ////////////////////////////////////////////////
 
-    //byte stuffing 
-    int stuff (unsigned char *stuffed, const unsigned char *helper, int size2){
-        int size = 0 ;
-        stuffed[size ++] = helper[0];
+//byte stuffing 
+int stuff (unsigned char *stuffed, const unsigned char *helper, int size2){
+    int size = 0 ;
+    stuffed[size ++] = helper[0];
 
-        for (int i = 1 ; i < size2 ; i++){
-            if (helper[i] == FLAG || helper[i] == ESC){
-                stuffed[size++] = ESC;
-                stuffed[size++] = helper[i]^0x20;
-            }
-            else{
-                stuffed[size++] = helper[i];
-            } 
-        }
-        return size;
+    for (int i = 1 ; i < size2 ; i++){
+        if (helper[i] == FLAG || helper[i] == ESC){
+            stuffed[size++] = ESC;
+            stuffed[size++] = helper[i]^0x20;
+        } else stuffed[size++] = helper[i];
     }
+    return size;
+}
     
-    int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
-        int size = 0 ;
-        destuffed[size++] = helper[0];
+int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
+    int size = 0 ;
+    destuffed[size++] = helper[0];
 
-        for (int i = 1; i < size2 ; i++){
-            if (helper[i] == ESC){
-                destuffed[size++] = helper[i+1]^0x20;
-                i++;
-            }
-            else{
-                destuffed[size++] = helper[i];
-            }
+    for (int i = 1; i < size2 ; i++){
+        if (helper[i] == ESC){
+            destuffed[size++] = helper[i+1]^0x20;
+            i++;
         }
-        return size;
+        else{
+            destuffed[size++] = helper[i];
+        }
     }
-    int llwrite(const unsigned char *buf, int bufSize){
+    return size;
+}
+
+
+int llwrite(const unsigned char *buf, int bufSize){
 
     printf("Entered llwrite %d\n",ret);
     alarmcount = 0;
@@ -252,17 +251,18 @@ int llopen(LinkLayer connectionParameters)
     unsigned char dm[size];
     dm[0] = FLAG;
     dm[1] = A_T;
-    dm[2] = (0 << 6); 
+    dm[2] = (0 << 6); //information frame 0
     dm[3] = dm[1] ^ dm[2]; //BCC1
 
     unsigned char BCC2 = buf[0];
     for (int i = 0 ; i < bufSize; i++){
-        dm [i + 4] = buf[i];
-        if (i > 0) BCC2 ^= buf[i];
+        dm [i + 4] = buf[i];        //adiciona data
+        if (i > 0) BCC2 ^= buf[i];  // cria BCC2
     }
 
-    dm[bufSize + 4] = BCC2;
-    unsigned char stuffed[size * 2];
+    dm[bufSize + 4] = BCC2;  //adiciona BCC2 à frame
+    
+    unsigned char stuffed[size * 2];  
     size = stuff(stuffed,dm,size);
     stuffed[size] = FLAG;
     size++;
@@ -283,68 +283,48 @@ int llopen(LinkLayer connectionParameters)
 
         while (acc = 0 & rej == 0 && alarmEnabled){
             STOP = FALSE;
-            int bytesW = writeBytesSerialPort(stuffed, size); 
+            int bytesW = writeBytesSerialPort(stuffed, size); //send information frame
             printf("Written %d bytes \n", bytesW);
 
-                while(alarmEnabled && (!STOP)){
-                    int bytesR = readByteSerialPort(&read);
-                    if (bytesR == 0) continue;
+            while(alarmEnabled && !STOP) {
+                int bytesR = readByteSerialPort(&read);  //receive feedback
+                if (bytesR == 0) continue;
 
-                    switch(s){
-                        case START:
-                        if (read == FLAG) {
-                            s = FLAG_RCV;
-                            }
+                switch(s) {
+                    case START:
+                        if (read == FLAG) s = FLAG_RCV;
                         break;
-                        case FLAG_RCV:
-                        if (read == A_R) {
-                            s = A_RCV;
-                            } 
-                        else if (read == FLAG) {
+                    case FLAG_RCV:
+                        if (read == FLAG) s = FLAG_RCV;
+                        else if (read == A_R) s = A_RCV;                        
+                        else s = START;
                         break;
-                            } 
-                        else {
-                            s = START;
-                            }
-                        break;
-                        case A_RCV:
-                        if (read == ((0 << 7) | C_REJ0) || read == ((1 << 7) | C_REJ1) || 
-                            read == ((0 << 7) | A_R) || read == ((1 << 7) | A_R) || read == C_DISC) {
+                    case A_RCV:
+                        if (read == C_REJ0 || read == C_REJ1 || 
+                            read == C_RR0 || read == C_RR1 || read == C_DISC) {
                             s = C_RCV;
                             helper = read;
-                            } 
-                        else if (read == FLAG) {
-                            s = FLAG_RCV;
-                            } 
-                        else {
-                            s = START;
-                            }
+                        } else if (read == FLAG) s = FLAG_RCV;
+                        else s = START;
                         break;
-                        case C_RCV:
-                        if (read == (A_T ^ helper)) {
-                            s = BCC_OK;
-                            } 
-                        else if (read == FLAG) {
-                            s = FLAG_RCV;
-                            } 
-                        else {
-                            s = START;
-                            }
+                    case C_RCV:
+                        if (read == (A_R ^ helper)) s = BCC_OK;
+                        else if (read == FLAG) s = FLAG_RCV;
+                        else s = START;
                         break;
-                        case BCC_OK:
+                    case BCC_OK:
                         if (read == FLAG) {
                             s = STOPP;
                             STOP = TRUE;
-                            } 
-                        else {
+                        } else {
                             s = START;
-                            }
+                        }
                         break;
-                        default:
-                            s = START;
+                    default:
+                        s = START;
                         break;
-                            }
                 }
+            }
         
         }
     }
