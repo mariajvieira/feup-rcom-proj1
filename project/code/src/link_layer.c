@@ -16,6 +16,7 @@
 #define C_RR1 0xAB
 #define C_REJ0 0x54
 #define C_DISC 0x0B
+#define ESC 0x7D
 
 int alarmcount = 0;
 int alarmEnabled = FALSE;
@@ -209,12 +210,45 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
-int llwrite(const unsigned char *buf, int bufSize)
-{
+
+    //byte stuffing 
+    int stuff (unsigned char *stuffed, const unsigned char *helper, int size2){
+        int size = 0 ;
+        stuffed[size ++] = helper[0];
+
+        for (int i = 1 ; i < size2 ; i++){
+            if (helper[i] == FLAG || helper[i] == ESC){
+                stuffed[size++] = ESC;
+                stuffed[size++] = helper[i]^0x20;
+            }
+            else{
+                stuffed[size++] = helper[i];
+            } 
+        }
+        return size;
+    }
+    
+    int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
+        int size = 0 ;
+        destuffed[size++] = helper[0];
+
+        for (int i = 1; i < size2 ; i++){
+            if (helper[i] == ESC){
+                destuffed[size++] = helper[i+1]^0x20;
+                i++;
+            }
+            else{
+                destuffed[size++] = helper[i];
+            }
+        }
+        return size;
+    }
+    int llwrite(const unsigned char *buf, int bufSize){
+
     printf("Entered llwrite %d\n",ret);
     alarmcount = 0;
     int size = 6 + bufSize;
-    unsigned char *dm = (unsigned char *)malloc(size);
+    unsigned char dm[size];
     dm[0] = FLAG;
     dm[1] = A_T;
     dm[2] = (0 << 6); 
@@ -226,6 +260,12 @@ int llwrite(const unsigned char *buf, int bufSize)
         if (i > 0) BCC2 ^= buf[i];
     }
 
+    dm[bufSize + 4] = BCC2;
+    unsigned char stuffed[size * 2];
+    size = stuff(stuffed,dm,size);
+    stuffed[size] = FLAG;
+    size++;
+    
     return 0;
 }
 
