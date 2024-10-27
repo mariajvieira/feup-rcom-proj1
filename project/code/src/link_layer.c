@@ -17,6 +17,8 @@
 #define C_REJ0 0x54
 #define C_REJ1 0X55
 #define C_DISC 0x0B
+#define C_I0 0x00
+#define C_I1 0x80
 #define ESC 0x7D
 
 int alarmcount = 0;
@@ -25,9 +27,11 @@ volatile int STOP = FALSE;
 int ret, timeout;
 int fd2;
 LinkLayer info;
+int frame_number=1;
 
-typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK,STOPP} States;
+typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK, DATA, STOPP} States;
 States s;
+
 
 void alarmHandler(int signal)
 {
@@ -124,9 +128,11 @@ int llopen(LinkLayer connectionParameters)
                                 s=START;
                             }
                             break;
+                        case STOPP:
+                            break;
                         default:
-                        s=START;
-                        break;
+                            s=START;
+                            break;
                     }
                 
                     if (final){
@@ -215,29 +221,47 @@ int llopen(LinkLayer connectionParameters)
 //byte stuffing 
 int stuff (unsigned char *stuffed, const unsigned char *helper, int size2){
     int size = 0 ;
-    stuffed[size ++] = helper[0];
+    stuffed[size] = helper[0];
+    size++;
 
     for (int i = 1 ; i < size2 ; i++){
         if (helper[i] == FLAG || helper[i] == ESC){
-            stuffed[size++] = ESC;
-            stuffed[size++] = helper[i]^0x20;
-        } else stuffed[size++] = helper[i];
+            stuffed[size] = ESC;
+            size++;
+            stuffed[size] = helper[i]^0x20;
+            size++;
+        } else {
+            stuffed[size] = helper[i];
+            size++;
+        } 
     }
     return size;
 }
     
 int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
     int size = 0 ;
-    destuffed[size++] = helper[0];
+    int i=0;
+
+    destuffed[size] = helper[0];
+    size++;
 
     for (int i = 1; i < size2 ; i++){
-        if (helper[i] == ESC){
-            destuffed[size++] = helper[i+1]^0x20;
-            i++;
+        if (helper[i]==ESC) {
+            if (i+1 <size2) {
+                if (helper[i+1] == (FLAG^0x20)){
+                    destuffed[size] = FLAG;
+                    size++;
+                } else if (helper[i+1] == (ESC^0x20)){
+                    destuffed[size] = ESC;
+                    size++;
+                }
+                i++;
+            }
+        } else {
+            destuffed[size]=helper[i];
+            size++;
         }
-        else{
-            destuffed[size++] = helper[i];
-        }
+        
     }
     return size;
 }
@@ -272,6 +296,7 @@ int llwrite(const unsigned char *buf, int bufSize){
     int rej = 0 ;
     unsigned char helper = {0};
     unsigned char read = {0};
+    s = START;
 
     (void) signal (SIGALRM, alarmHandler);
 
@@ -331,12 +356,121 @@ int llwrite(const unsigned char *buf, int bufSize){
     return 0;
 }
 
+
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
     printf("Entered llread\n");
+    alarmcount = 0;
+    int packet_size=0;
+    unsigned char read = {0};
+    unsigned char b[MAX_PAYLOAD_SIZE];
+    unsigned char RR1[5]={FLAG, A_T, C_RR1, A_T^C_RR1, FLAG};
+    unsigned char RR0[5]={FLAG, A_T, C_RR0, A_T^C_RR0, FLAG};;
+    unsigned char REJ1[5]={FLAG, A_T, C_REJ1, A_T^C_REJ1, FLAG};;
+    unsigned char REJ0[5]={FLAG, A_T, C_REJ0, A_T^C_REJ0, FLAG};
+    unsigned char n;
+    unsigned char bcc2=0;
+    int size=0;
+    s = START;
+
+
+    (void) signal (SIGALRM, alarmHandler);
+
+    while (alarmcount < ret){
+        alarmEnabled = TRUE;
+        alarm(timeout);
+
+        while (alarmEnabled && !STOP){
+            STOP = FALSE;
+            int bytesR = readByteSerialPort(&read);
+            if (bytesR == 0) continue;
+            printf("Read %d bytes \n", bytesR);
+
+ // START, FLAG, A, CONTROL, BCC1, DATA, BCC2, FLAG
+            switch (s) {
+                case START:
+                    if (read == FLAG) s = FLAG_RCV;
+                    break;
+                case FLAG_RCV:
+                    if (read == FLAG) s = FLAG_RCV;
+                    else if (read == A_T) s = A_RCV;                        
+                    else s = START;
+                    break;       
+                case A_RCV:
+                    if (read == C_I0 || read == C_I1) {
+                        s = C_RCV;
+                        frame_number = read;
+                    } else if (read == FLAG) s = FLAG_RCV;
+                    else s = START;
+                    break;    
+                case C_RCV:
+                    if (read == (A_T ^ n)) s = DATA;
+                    else if (read == FLAG) s = FLAG_RCV;
+                    else s = START;
+                    break;
+                case DATA:
+
+                    if (read == FLAG) {  //frame acabou
+                        bcc2 = b[size-1];
+                        size--;
+
+                        unsigned char bcc2_ = b[0];
+                        for (int i=1; i<size; i++) {
+                            bcc2_ = bcc2_ ^ b[i];
+                        }
+
+                        if (bcc2 = bcc2_) { //aceite
+                            s=STOPP;
+                            if (frame_number == 0) {
+                                //mandar RR1
+                                int bytesW = writeBytesSerialPort(RR1, 5); 
+                                printf("\nRR1 SENT\n");
+                                frame_number=1;
+
+                            } else if (frame_number==1) {
+                                //mandar RR0
+                                int bytesW = writeBytesSerialPort(RR0, 5);
+                                printf("\nRR0 SENT\n");
+                                frame_number=0; 
+                            }
+                            
+                        } else {  //rejeitado
+                            if (frame_number == 0) {
+                                //mandar RJ0
+                                int bytesW = writeBytesSerialPort(REJ0, 5); 
+                                printf("\nREJ0 SENT\n");
+                            } else if (frame_number==1) {
+                                //mandar RJ1
+                                int bytesW = writeBytesSerialPort(REJ1, 5); 
+                                printf("\nREJ1 SENT\n");
+                            }
+                            return -1;
+
+                        }
+                    } else if (read == ESC) { //fazer destuff e guardar no packet
+                        s = DATA;
+                        unsigned char destuffed[MAX_PAYLOAD_SIZE];
+                        packet_size = destuff(destuffed, b, size);
+                        memcpy(packet, destuffed, packet_size);
+                        return packet_size;
+
+                    } 
+                    break;
+                
+
+            }
+        }
+
+    }
+
+
+
+
+
+
     return 0;
 }
 
@@ -347,7 +481,6 @@ int llclose(int showStatistics)
 {
     alarmEnabled=FALSE;
     STOP = FALSE;
-    int final=0;
     unsigned char DISC[5] = {FLAG, A_T, C_DISC, A_T^C_DISC, FLAG};
     unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
 
@@ -358,7 +491,6 @@ int llclose(int showStatistics)
         case(LlTx):
         {
             s=START;
-            final=0;
             alarmcount=0;
             
             (void) signal (SIGALRM, alarmHandler); 
@@ -374,8 +506,8 @@ int llclose(int showStatistics)
                 
 
                 while (alarmEnabled==TRUE && !STOP) {
-                int bytesR_DISC = readByteSerialPort(receiveDISC);
-                //printf("\nDISC message sent, %d bytes written\n", bytesR_DISC);
+                    int bytesR_DISC = readByteSerialPort(receiveDISC);
+                    //printf("\nDISC message sent, %d bytes written\n", bytesR_DISC);
                     if (bytesR_DISC == 0) continue;
                     unsigned char byteR_DISC = receiveDISC[0]; 
 
@@ -406,7 +538,6 @@ int llclose(int showStatistics)
                         case BCC_OK:
                             if (byteR_DISC == FLAG) {
                                 s = STOPP;
-                                final=1;
                                 STOP = TRUE;
                                 printf("DISC RECEIVED!\n");
                             } else {
@@ -414,7 +545,8 @@ int llclose(int showStatistics)
                                 break;
                             }
                             break;
-
+                        case STOPP:
+                            break; 
                         default:
                             s=START;
                             break;
@@ -435,7 +567,6 @@ int llclose(int showStatistics)
         case (LlRx):
         {
             s=START;
-            final=0;
             alarmcount=0;
      
             (void) signal (SIGALRM, alarmHandler); 
@@ -477,14 +608,14 @@ int llclose(int showStatistics)
                         case BCC_OK:
                             if (byteR_DISC == FLAG) {
                                 s = STOPP;
-                                final=1;
                                 STOP = TRUE;
                                 printf("DISC RECEIVED!\n");
                             } else {
                                 s=START;
                             }
                             break;
-
+                        case STOPP:
+                            break;
                         default:
                             s=START;
                             break;
@@ -507,7 +638,7 @@ int llclose(int showStatistics)
             STOP = FALSE;
 
             while (alarmcount<ret && !STOP) {
-                while (alarmEnabled==FALSE && !STOP) {
+                while (!alarmEnabled && !STOP) {
                     int bytesR_UA = readByteSerialPort(receiveUA);
                     if (bytesR_UA==0) continue;
 
@@ -540,11 +671,12 @@ int llclose(int showStatistics)
                         case BCC_OK:
                             if (byteR_UA == FLAG) {
                                 s = STOPP;
-                                final=1;
                                 STOP = TRUE;
                             } else {
                                 s=START;
                             }
+                            break;
+                        case STOPP:
                             break;
 
                         default:
@@ -555,17 +687,14 @@ int llclose(int showStatistics)
                         
                 }
                 if (STOP) {
-                    printf("UA RECEIVED\n");    
-                    return 0;             
-                } else return 1;
-                if (alarmEnabled == FALSE){
-                    alarmEnabled = TRUE;
-                } 
+                    printf("UA RECEIVED\n");                 
+                } else return -1;
+                if (!alarmEnabled) alarmEnabled = TRUE;
+                
                 alarmcount++;
             }
 
         }
-
 
     }
 
