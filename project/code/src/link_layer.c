@@ -363,6 +363,7 @@ int llclose(int showStatistics)
             
             (void) signal (SIGALRM, alarmHandler); 
             unsigned char receiveDISC[BUF_SIZE] = {0};
+
             while (alarmcount<ret && !STOP) {
                 if (!alarmEnabled) {
                     int bytesW_DISC = writeBytesSerialPort(DISC, 5);  //SEND DISC
@@ -411,7 +412,6 @@ int llclose(int showStatistics)
                                 printf("DISC RECEIVED!\n");
                             } else {
                                 s=START;
-                                break;
                             }
                             break;
 
@@ -427,10 +427,12 @@ int llclose(int showStatistics)
                     int bytesW_UA = writeBytesSerialPort(ua, BUF_SIZE);
                     alarmEnabled = FALSE;
                     printf("UA SENT: %d BYTES WRITTEN\n", bytesW_UA);                  
-                } else return -1;
-
-                alarmcount++;
+                } else {
+                    alarmcount++;
+                    if (alarmcount >= ret) return -1;
+                }
             }
+            break;
         }
         case (LlRx):
         {
@@ -496,10 +498,11 @@ int llclose(int showStatistics)
                     int bytesW_DISC = writeBytesSerialPort(DISC, 5);
                     printf("DISC SENT: %d BYTES WRITTEN\n", bytesW_DISC);  
                     break;             
-                } else return -1;
-                if (alarmEnabled == FALSE){
-                    alarmEnabled = TRUE;
-                }  
+                } else {
+                    alarmcount++;
+                    if (alarmcount >= ret) return -1;
+                    if (!alarmEnabled) alarmEnabled = TRUE;
+                }
                 alarmcount++;
             }
             alarmcount = 0;
@@ -507,7 +510,7 @@ int llclose(int showStatistics)
             STOP = FALSE;
 
             while (alarmcount<ret && !STOP) {
-                while (alarmEnabled==FALSE && !STOP) {
+                while (!alarmEnabled && !STOP) {
                     int bytesR_UA = readByteSerialPort(receiveUA);
                     if (bytesR_UA==0) continue;
 
@@ -556,13 +559,16 @@ int llclose(int showStatistics)
                 }
                 if (STOP) {
                     printf("UA RECEIVED\n");    
+                    alarm(0);
+                    alarmEnabled = FALSE;
                     return 0;             
-                } else return 1;
-                if (alarmEnabled == FALSE){
-                    alarmEnabled = TRUE;
-                } 
-                alarmcount++;
+                } else {
+                    alarmcount++;
+                    if (alarmcount >= ret) return 1;
+                    if (!alarmEnabled) alarmEnabled = TRUE;
+                }
             }
+            break;
 
         }
 
