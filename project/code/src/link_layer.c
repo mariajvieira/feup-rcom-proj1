@@ -28,7 +28,7 @@ volatile int STOP = FALSE;
 int ret, timeout;
 int fd2;
 LinkLayer info;
-int frame_number=1;
+int frame_number;
 
 typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK, DATA, STOPP} States;
 States s;
@@ -220,7 +220,7 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 
 //byte stuffing 
-int stuff (unsigned char *stuffed, const unsigned char *helper, int size2){
+int stuff (unsigned char *stuffed, const unsigned char *helper, int size2) {
     int size = 0 ;
     stuffed[size] = helper[0];
     size++;
@@ -269,22 +269,24 @@ int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
 
 int llwrite(const unsigned char *buf, int bufSize){
 
-    printf("Entered llwrite %d\n",ret);
+    printf("\nLLWRITE() \n");
     alarmcount = 0;
     int size = 6 + bufSize;
     unsigned char frame[size];
     frame[0] = FLAG;
     frame[1] = A_T;
-    frame[2] = (0 << 6); //information frame 0
+    frame[2] = C_I0; 
     frame[3] = frame[1] ^ frame[2]; //BCC1
+    int pos=4;
 
-    unsigned char BCC2 = buf[0];
+    unsigned char bcc2_tx = buf[0];
     for (int i = 0 ; i < bufSize; i++){
-        frame [i + 4] = buf[i];        //adiciona data
-        if (i > 0) BCC2 ^= buf[i];  // cria BCC2
+        frame[pos] = buf[i];   //adiciona data
+        pos++;     
+        if (i > 0) bcc2_tx ^= buf[i];  // cria BCC2
     }
 
-    frame[bufSize + 4] = BCC2;  //adiciona BCC2 à frame
+    frame[pos] = bcc2_tx;  //adiciona BCC2 à frame
     
     unsigned char stuffed[size * 2];  
     size = stuff(stuffed,frame,size);
@@ -307,14 +309,22 @@ int llwrite(const unsigned char *buf, int bufSize){
 
         STOP = FALSE;
         int bytesW = writeBytesSerialPort(stuffed, size); //send information frame
-        printf("Written %d bytes \n", bytesW);
+        if (bytesW==-1) {
+            printf("ERROR\n");
+        }
+        //printf("Written %d bytes \n", bytesW);
 
-        while((ack = 0 && rej == 0 && alarmEnabled) && !STOP) {
+        while((ack == 0 && rej == 0 && alarmEnabled) && !STOP) {
+            printf("ENTERED WHILE\n");
             int bytesR = readByteSerialPort(&read);  //receive feedback
-            if (bytesR == 0) continue;
-
+            if (bytesR == 0) {
+                printf("NO BYTES READ\n");
+                continue;
+            }
+            
             switch(s) {
                 case START:
+                    printf("ENTERED SWITCH, STATE START\n");
                     if (read == FLAG) s = FLAG_RCV;
                     break;
                 case FLAG_RCV:
@@ -352,7 +362,8 @@ int llwrite(const unsigned char *buf, int bufSize){
                     break;
             }
         }
-    
+        printf("REJ IS %d\n", rej);
+        printf("ACK IS %d\n", ack);
         if (ack==1) return size;
         if (rej==1) alarmcount++;
     }
@@ -368,13 +379,16 @@ int llread(unsigned char *packet)
     printf("Entered llread\n");
     alarmcount = 0;
     int packet_size=0;
+    
+    memset(packet, 0, MAX_PAYLOAD_SIZE);
     unsigned char read[MAX_PAYLOAD_SIZE] = {0};
     unsigned char RR1[5]={FLAG, A_T, C_RR1, A_T^C_RR1, FLAG};
     unsigned char RR0[5]={FLAG, A_T, C_RR0, A_T^C_RR0, FLAG};;
     unsigned char REJ1[5]={FLAG, A_T, C_REJ1, A_T^C_REJ1, FLAG};;
     unsigned char REJ0[5]={FLAG, A_T, C_REJ0, A_T^C_REJ0, FLAG};
     unsigned char n;
-    unsigned char bcc2=0;
+    unsigned char bcc2={0};
+    unsigned char bcc2_=0;
     int size=0;
     s = START;
 
@@ -382,21 +396,28 @@ int llread(unsigned char *packet)
     (void) signal (SIGALRM, alarmHandler);
 
     while (alarmcount < ret){
+        //printf("ENTERED FIRST WHILE");
         alarmEnabled = TRUE;
+        STOP=FALSE;
         alarm(timeout);
         size=0;
 
         while (alarmEnabled && !STOP){
-            STOP = FALSE;
             int bytesR = readByteSerialPort(read);
-            if (bytesR == 0) continue;
-            printf("Read %d bytes \n", bytesR);
+            if (bytesR == 0) {
+                printf("NO BYTES READ LLREAD\n");
+                continue;
+            }
+            //printf("Read %d bytes \n", bytesR);
 
             unsigned char byteR = read[0];
+            
+            //printf("BYtE READ : %d\n", byteR);
 
- // START, FLAG, A, CONTROL, BCC1, DATA, BCC2, FLAG
+            // START, FLAG, A, CONTROL, BCC1, DATA, BCC2, FLAG
             switch (s) {
                 case START:
+                    printf("ENTERED SWITCH S=START\n");
                     if (byteR == FLAG) s = FLAG_RCV;
                     break;
                 case FLAG_RCV:
@@ -424,32 +445,52 @@ int llread(unsigned char *packet)
                     break;
                 case DATA:
                     if (byteR == FLAG) {  //frame acabou
-                        bcc2 = packet[size-1];
-                        size--;
+
+                        if (size>0) {
+                            bcc2 = packet[size];
+                            size--;
+
+                        } else {
+                            printf("Error: Size is zero or negative\n");
+                            return -1;
+                        }
 
 
                         unsigned char destuffed[MAX_PAYLOAD_SIZE];
                         packet_size = destuff(destuffed, packet, size);
                         memcpy(packet, destuffed, packet_size);
 
-
-
-                        unsigned char bcc2_ = packet[0];
-                        for (int i=1; i<size; i++) {
-                            bcc2_ = bcc2_ ^ packet[i];
+                        if (size <= 0) {
+                            printf("Error: Size is zero or negative\n");
+                            return -1; 
                         }
 
+                        bcc2_ = packet[0];
+                        printf("PACKET SIZE IS %d AND SIZE IS %d\n", packet_size, size);
+                        for (int i=1; i<packet_size; i++) {
+                            printf("BCC2_ XOR PACKET %d %d\n", bcc2_, packet[i]);
+                            bcc2_ ^= packet[i];
+                        }
+                        printf("BCC2: %d\n", bcc2);
+                        printf("BCC2_: %d\n", bcc2_);
+                    
                         if (bcc2 == bcc2_) { //aceite
-                            s=STOPP;
+                            printf("BCC2 IGUAIS\n");
                             if (frame_number == 0) {
                                 //mandar RR1
                                 int bytesW = writeBytesSerialPort(RR1, 5); 
+                                if (bytesW==-1) {
+                                    printf("ERROR\n");
+                                }
                                 printf("\nRR1 SENT\n");
                                 frame_number=1;
 
                             } else if (frame_number==1) {
                                 //mandar RR0
                                 int bytesW = writeBytesSerialPort(RR0, 5);
+                                if (bytesW==-1) {
+                                    printf("ERROR\n");
+                                }
                                 printf("\nRR0 SENT\n");
                                 frame_number=0; 
                             }
@@ -457,19 +498,26 @@ int llread(unsigned char *packet)
                             return packet_size;
                             
                         } else {  //rejeitado
+                            printf("BCC2 DIFERENTES\n");
                             if (frame_number == 0) {
                                 //mandar RJ0
                                 int bytesW = writeBytesSerialPort(REJ0, 5); 
+                                if (bytesW==-1) {
+                                    printf("ERROR\n");
+                                }
                                 printf("\nREJ0 SENT\n");
                             } else if (frame_number==1) {
                                 //mandar RJ1
                                 int bytesW = writeBytesSerialPort(REJ1, 5); 
+                                if (bytesW==-1) {
+                                    printf("ERROR\n");
+                                }
                                 printf("\nREJ1 SENT\n");
                             }
                             return -1;
 
                         }
-                    } else if (byteR == ESC) { //fazer destuff e guardar no packet
+                    } else { //guardar
 
                         packet[size]=byteR;
                         size++;

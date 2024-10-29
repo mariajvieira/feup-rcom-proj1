@@ -20,7 +20,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         test.role = LlTx;
     }
     else{
-        exit(-1);
+        return;
     }
     test.baudRate = baudRate;
     test.nRetransmissions = nTries;
@@ -34,16 +34,17 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlTx):
         {
             // VERIFICAR SE FICHEIRO EXISTE
+            printf("READING FILE\n");
             FILE *file = fopen(filename, "rb");
             if (file == NULL) {
                 printf("Erro: Ficheiro %s não encontrado.\n", filename);
                 llclose(0);
-                exit(-1);
+                return;
             }
 
             // VER TAMANHO DO FICHEIRO
             fseek(file, 0, SEEK_END);
-            long fileSize = ftell(file);
+            long int fileSize = ftell(file);
             fseek(file, 0, SEEK_SET);
 
             //CONTROL PACKET -- start of file
@@ -51,27 +52,33 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             unsigned char control_start[256]={0};
             int packet_size = 0;
 
-            control_start[packet_size++] = 1; // Campo C indicando "start"
-            control_start[packet_size++] = 0; // Tipo 0 para tamanho do ficheiro
-            control_start[packet_size++] = sizeof(long); // Comprimento do valor (tamanho do ficheiro)
-            memcpy(&control_start[packet_size], &fileSize, sizeof(long));
-            packet_size += sizeof(long);
+            control_start[packet_size++] = 1; // Control field "start"
 
-            // Nome do ficheiro
-            control_start[packet_size++] = 1; // Tipo 1 para nome do ficheiro
-            int name_length = strlen(filename);
-            control_start[packet_size++] = name_length; // Comprimento do nome do ficheiro
-            memcpy(&control_start[packet_size], filename, name_length);
-            packet_size += name_length;
+            // File size
+            printf("ADDING FILE SIZE\n");
+            control_start[packet_size++] = 0; // file size T
+            control_start[packet_size++] = sizeof(fileSize); // file size L
+            memcpy(&control_start[packet_size], &fileSize, sizeof(fileSize)); // file size V
+            packet_size += sizeof(fileSize);  //apontar para proxima posição
 
+            // File name
+            printf("ADDING FILE NAME\n");
+            control_start[packet_size++] = 1; // file name T
+            int name_length = strlen(filename); 
+            control_start[packet_size++] = name_length;  // file name L
+            memcpy(&control_start[packet_size], filename, name_length); // file name V
+            packet_size += name_length; //apontar para proxima posição
+
+
+            printf("SENDING START CONTROL PACKET\n");
             // Enviar o pacote de controlo de início
             if (llwrite(control_start, packet_size) < 0) {
                 printf("Erro ao enviar pacote de controlo de início.\n");
                 fclose(file);
                 llclose(0);
-                exit(-1);
+                return;
             }
-            printf("Pacote de controlo de início enviado.\n");
+            printf("START CONTROL PACKET SENT\n");
 
 
             // DATA PACKET
@@ -89,7 +96,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     printf("Erro ao enviar pacote de dados.\n");
                     fclose(file);
                     llclose(0);
-                    exit(-1);
+                    return;
                 }
                 sequence_number++;
             }
@@ -103,7 +110,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 printf("Erro ao enviar pacote de controlo de término.\n");
                 fclose(file);
                 llclose(0);
-                exit(-1);
+                return;
             }
             printf("Pacote de controlo de término enviado.\n");
 
@@ -117,17 +124,18 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlRx):
         {
 
-            unsigned char buffer[256];
+            unsigned char buffer[256]={0};
             int control_packet_received = 0;
             FILE *file = NULL;
 
             while (1) {
+                printf("READING PACKET\n");
                 int length = llread(buffer);
                 if (length < 0) {
                     printf("Erro ao ler pacote.\n");
                     if (file) fclose(file);
                     llclose(0);
-                    exit(-1);
+                    return;
                 }
 
                 // Identificar o tipo de pacote
@@ -154,7 +162,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     if (file == NULL) {
                         printf("Erro ao abrir o ficheiro %s para escrita.\n", received_filename);
                         llclose(0);
-                        exit(-1);
+                        return;
                     }
                     printf("Pacote de controlo de início recebido: ficheiro %s, tamanho %ld bytes.\n", received_filename, fileSize);
 
