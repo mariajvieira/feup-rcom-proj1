@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define BUF_SIZE 5
 #define FLAG 0x7E
@@ -240,7 +241,6 @@ int stuff (unsigned char *stuffed, const unsigned char *helper, int size2){
     
 int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
     int size = 0 ;
-    int i=0;
 
     destuffed[size] = helper[0];
     size++;
@@ -272,27 +272,26 @@ int llwrite(const unsigned char *buf, int bufSize){
     printf("Entered llwrite %d\n",ret);
     alarmcount = 0;
     int size = 6 + bufSize;
-    unsigned char dm[size];
-    dm[0] = FLAG;
-    dm[1] = A_T;
-    dm[2] = (0 << 6); //information frame 0
-    dm[3] = dm[1] ^ dm[2]; //BCC1
+    unsigned char frame[size];
+    frame[0] = FLAG;
+    frame[1] = A_T;
+    frame[2] = (0 << 6); //information frame 0
+    frame[3] = frame[1] ^ frame[2]; //BCC1
 
     unsigned char BCC2 = buf[0];
     for (int i = 0 ; i < bufSize; i++){
-        dm [i + 4] = buf[i];        //adiciona data
+        frame [i + 4] = buf[i];        //adiciona data
         if (i > 0) BCC2 ^= buf[i];  // cria BCC2
     }
 
-    dm[bufSize + 4] = BCC2;  //adiciona BCC2 à frame
+    frame[bufSize + 4] = BCC2;  //adiciona BCC2 à frame
     
     unsigned char stuffed[size * 2];  
-    size = stuff(stuffed,dm,size);
+    size = stuff(stuffed,frame,size);
     stuffed[size] = FLAG;
     size++;
 
-    int count = 0 ; 
-    int acc = 0;
+    int ack = 0;
     int rej = 0 ;
     unsigned char helper = {0};
     unsigned char read = {0};
@@ -303,57 +302,61 @@ int llwrite(const unsigned char *buf, int bufSize){
     while (alarmcount < ret){
         alarmEnabled = TRUE;
         alarm(timeout);
-        acc = 0;
+        ack = 0;
         rej = 0;
 
-        while (acc = 0 & rej == 0 && alarmEnabled){
-            STOP = FALSE;
-            int bytesW = writeBytesSerialPort(stuffed, size); //send information frame
-            printf("Written %d bytes \n", bytesW);
+        STOP = FALSE;
+        int bytesW = writeBytesSerialPort(stuffed, size); //send information frame
+        printf("Written %d bytes \n", bytesW);
 
-            while(alarmEnabled && !STOP) {
-                int bytesR = readByteSerialPort(&read);  //receive feedback
-                if (bytesR == 0) continue;
+        while((ack = 0 && rej == 0 && alarmEnabled) && !STOP) {
+            int bytesR = readByteSerialPort(&read);  //receive feedback
+            if (bytesR == 0) continue;
 
-                switch(s) {
-                    case START:
-                        if (read == FLAG) s = FLAG_RCV;
-                        break;
-                    case FLAG_RCV:
-                        if (read == FLAG) s = FLAG_RCV;
-                        else if (read == A_R) s = A_RCV;                        
-                        else s = START;
-                        break;
-                    case A_RCV:
-                        if (read == C_REJ0 || read == C_REJ1 || 
-                            read == C_RR0 || read == C_RR1 || read == C_DISC) {
-                            s = C_RCV;
-                            helper = read;
-                        } else if (read == FLAG) s = FLAG_RCV;
-                        else s = START;
-                        break;
-                    case C_RCV:
-                        if (read == (A_R ^ helper)) s = BCC_OK;
-                        else if (read == FLAG) s = FLAG_RCV;
-                        else s = START;
-                        break;
-                    case BCC_OK:
-                        if (read == FLAG) {
-                            s = STOPP;
-                            STOP = TRUE;
-                        } else {
-                            s = START;
-                        }
-                        break;
-                    default:
+            switch(s) {
+                case START:
+                    if (read == FLAG) s = FLAG_RCV;
+                    break;
+                case FLAG_RCV:
+                    if (read == FLAG) s = FLAG_RCV;
+                    else if (read == A_R) s = A_RCV;                        
+                    else s = START;
+                    break;
+                case A_RCV:
+                    if (read == C_REJ0 || read == C_REJ1){
+                        rej=1;
+                        STOP =TRUE;
+                    } else if (read == C_RR0 || read == C_RR1) { 
+                        ack=1;
+                        s = C_RCV;
+                        helper = read;
+                    } else if (read == C_DISC) {
+                        
+                    } else if (read == FLAG) s = FLAG_RCV;
+                    else s = START;
+                    break;
+                case C_RCV:
+                    if (read == (A_R ^ helper)) s = BCC_OK;
+                    else if (read == FLAG) s = FLAG_RCV;
+                    else s = START;
+                    break;
+                case BCC_OK:
+                    if (read == FLAG) {
+                        STOP = TRUE;
+                    } else {
                         s = START;
-                        break;
-                }
+                    }
+                    break;
+                default:
+                    s = START;
+                    break;
             }
-        
         }
+    
+        if (ack==1) return size;
+        if (rej==1) alarmcount++;
     }
-    return 0;
+    return -1;
 }
 
 
@@ -365,8 +368,7 @@ int llread(unsigned char *packet)
     printf("Entered llread\n");
     alarmcount = 0;
     int packet_size=0;
-    unsigned char read = {0};
-    unsigned char b[MAX_PAYLOAD_SIZE];
+    unsigned char read[MAX_PAYLOAD_SIZE] = {0};
     unsigned char RR1[5]={FLAG, A_T, C_RR1, A_T^C_RR1, FLAG};
     unsigned char RR0[5]={FLAG, A_T, C_RR0, A_T^C_RR0, FLAG};;
     unsigned char REJ1[5]={FLAG, A_T, C_REJ1, A_T^C_REJ1, FLAG};;
@@ -382,47 +384,62 @@ int llread(unsigned char *packet)
     while (alarmcount < ret){
         alarmEnabled = TRUE;
         alarm(timeout);
+        size=0;
 
         while (alarmEnabled && !STOP){
             STOP = FALSE;
-            int bytesR = readByteSerialPort(&read);
+            int bytesR = readByteSerialPort(read);
             if (bytesR == 0) continue;
             printf("Read %d bytes \n", bytesR);
+
+            unsigned char byteR = read[0];
 
  // START, FLAG, A, CONTROL, BCC1, DATA, BCC2, FLAG
             switch (s) {
                 case START:
-                    if (read == FLAG) s = FLAG_RCV;
+                    if (byteR == FLAG) s = FLAG_RCV;
                     break;
                 case FLAG_RCV:
-                    if (read == FLAG) s = FLAG_RCV;
-                    else if (read == A_T) s = A_RCV;                        
+                    if (byteR == FLAG) s = FLAG_RCV;
+                    else if (byteR == A_T) s = A_RCV;                        
                     else s = START;
                     break;       
                 case A_RCV:
-                    if (read == C_I0 || read == C_I1) {
+                    if (byteR == C_I0) {
                         s = C_RCV;
-                        frame_number = read;
-                    } else if (read == FLAG) s = FLAG_RCV;
+                        frame_number = 0;
+                        n = byteR;
+                    } else if (byteR==C_I1) {
+                        s = C_RCV;
+                        frame_number = 1;
+                        n = byteR;
+
+                    } else if (byteR == FLAG) s = FLAG_RCV;
                     else s = START;
                     break;    
                 case C_RCV:
-                    if (read == (A_T ^ n)) s = DATA;
-                    else if (read == FLAG) s = FLAG_RCV;
+                    if (byteR == (A_T ^ n)) s = DATA;
+                    else if (byteR == FLAG) s = FLAG_RCV;
                     else s = START;
                     break;
                 case DATA:
-
-                    if (read == FLAG) {  //frame acabou
-                        bcc2 = b[size-1];
+                    if (byteR == FLAG) {  //frame acabou
+                        bcc2 = packet[size-1];
                         size--;
 
-                        unsigned char bcc2_ = b[0];
+
+                        unsigned char destuffed[MAX_PAYLOAD_SIZE];
+                        packet_size = destuff(destuffed, packet, size);
+                        memcpy(packet, destuffed, packet_size);
+
+
+
+                        unsigned char bcc2_ = packet[0];
                         for (int i=1; i<size; i++) {
-                            bcc2_ = bcc2_ ^ b[i];
+                            bcc2_ = bcc2_ ^ packet[i];
                         }
 
-                        if (bcc2 = bcc2_) { //aceite
+                        if (bcc2 == bcc2_) { //aceite
                             s=STOPP;
                             if (frame_number == 0) {
                                 //mandar RR1
@@ -436,6 +453,8 @@ int llread(unsigned char *packet)
                                 printf("\nRR0 SENT\n");
                                 frame_number=0; 
                             }
+                            s=STOPP;
+                            return packet_size;
                             
                         } else {  //rejeitado
                             if (frame_number == 0) {
@@ -450,28 +469,21 @@ int llread(unsigned char *packet)
                             return -1;
 
                         }
-                    } else if (read == ESC) { //fazer destuff e guardar no packet
+                    } else if (byteR == ESC) { //fazer destuff e guardar no packet
+
+                        packet[size]=byteR;
+                        size++;
                         s = DATA;
-                        unsigned char destuffed[MAX_PAYLOAD_SIZE];
-                        packet_size = destuff(destuffed, b, size);
-                        memcpy(packet, destuffed, packet_size);
-                        return packet_size;
 
                     } 
                     break;
-                
-
+                default:
+                    break;
             }
         }
 
     }
-
-
-
-
-
-
-    return 0;
+    return -1;
 }
 
 ////////////////////////////////////////////////
