@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define BUF_SIZE 5
 #define FLAG 0x7E
@@ -21,6 +22,7 @@
 #define C_I0 0x00
 #define C_I1 0x80
 #define ESC 0x7D
+#define DATA_SIZE 1024
 
 int alarmcount = 0;
 int alarmEnabled = FALSE;
@@ -239,32 +241,28 @@ int stuff (unsigned char *stuffed, const unsigned char *helper, int size2) {
     return size;
 }
     
-int destuff(unsigned char *destuffed, const unsigned char *helper, int size2){
-    int size = 0 ;
+int destuff(unsigned char *destuffed, const unsigned char *helper, int size2) {
+    int size = 0; // Inicializa o tamanho do pacote desinflado
+    unsigned char bcc2 = helper[size2 - 1]; // O último byte de helper é BCC2
 
-    destuffed[size] = helper[0];
-    size++;
-
-    for (int i = 1; i < size2 ; i++){
-        if (helper[i]==ESC) {
-            if (i+1 <size2) {
-                if (helper[i+1] == (FLAG^0x20)){
-                    destuffed[size] = FLAG;
-                    size++;
-                } else if (helper[i+1] == (ESC^0x20)){
-                    destuffed[size] = ESC;
-                    size++;
-                }
-                i++;
+    // Percorre os bytes do pacote de entrada, exceto o último que é o BCC2
+    for (size_t i = 0; i < size2 - 1; i++) {
+        if (helper[i] == 0x7D) { // Byte de escape encontrado
+            i++; // Avança para o próximo byte
+            if (helper[i] == 0x5E) {
+                destuffed[size++] = 0x7E; // Desinflação do byte original
+            } else if (helper[i] == 0x5D) {
+                destuffed[size++] = 0x7D; // Desinflação do byte original
             }
         } else {
-            destuffed[size]=helper[i];
-            size++;
+            destuffed[size++] = helper[i]; // Byte não escapado
         }
-        
     }
+
+    // Retorna o tamanho do pacote desinflado
     return size;
 }
+
 
 
 int llwrite(const unsigned char *buf, int bufSize){
@@ -302,6 +300,7 @@ int llwrite(const unsigned char *buf, int bufSize){
     (void) signal (SIGALRM, alarmHandler);
 
     while (alarmcount < ret){
+        s = START;
         alarmEnabled = TRUE;
         alarm(timeout);
         ack = 0;
@@ -338,6 +337,7 @@ int llwrite(const unsigned char *buf, int bufSize){
                         STOP =TRUE;
                     } else if (read == C_RR0 || read == C_RR1) { 
                         ack=1;
+                        alarmEnabled = FALSE;
                         s = C_RCV;
                         helper = read;
                     } else if (read == C_DISC) {
@@ -374,6 +374,15 @@ int llwrite(const unsigned char *buf, int bufSize){
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
+
+int generatebcc2(const char* data, int data_size){
+    unsigned char bcc2 = data[0];
+    for(int i = 1 ; i < data_size ; i++){
+        bcc2 ^= data[i];
+    }
+    return bcc2;
+}
+
 int llread(unsigned char *packet)
 {
     printf("Entered llread\n");
@@ -387,8 +396,8 @@ int llread(unsigned char *packet)
     unsigned char REJ1[5]={FLAG, A_T, C_REJ1, A_T^C_REJ1, FLAG};;
     unsigned char REJ0[5]={FLAG, A_T, C_REJ0, A_T^C_REJ0, FLAG};
     unsigned char n;
-    unsigned char bcc2={0};
-    unsigned char bcc2_=0;
+    unsigned char bcc2_packet = 0;
+    unsigned char bcc2 = 0;
     int size=0;
     s = START;
 
@@ -444,87 +453,73 @@ int llread(unsigned char *packet)
                     else s = START;
                     break;
                 case DATA:
-                    if (byteR == FLAG) {  //frame acabou
 
-                        if (size>0) {
-                            bcc2 = packet[size];
-                            size--;
+                if (byteR == FLAG) {  // Frame terminou
+                printf("Frame detectado como completo, tamanho: %d\n", size);
 
-                        } else {
-                            printf("Error: Size is zero or negative\n");
-                            return -1;
-                        }
+                if (size > 0) { 
+                if (size < 1) { 
+                printf("Erro: Pacote incompleto, tamanho: %d\n", size);
+                return -1;
+                }
+            
+                bcc2 = packet[size - 1];
+                size--;
+                packet[size] = '\0';
+                bcc2_packet = generatebcc2(packet,size);
 
+        } else {
+            printf("Erro: Tamanho do pacote inválido\n");
+            return -1;
+        }
 
-                        unsigned char destuffed[MAX_PAYLOAD_SIZE];
-                        packet_size = destuff(destuffed, packet, size);
-                        memcpy(packet, destuffed, packet_size);
+        unsigned char destuffed[MAX_PAYLOAD_SIZE];
+        packet_size = destuff(destuffed, packet, size);
+        memcpy(packet, destuffed, packet_size);
 
-                        if (size <= 0) {
-                            printf("Error: Size is zero or negative\n");
-                            return -1; 
-                        }
+        if (packet_size <= 0) {
+            printf("Erro ao processar destuffing, tamanho incorreto\n");
+            return -1;
+        }
 
-                        bcc2_ = packet[0];
-                        printf("PACKET SIZE IS %d AND SIZE IS %d\n", packet_size, size);
-                        for (int i=1; i<packet_size; i++) {
-                            printf("BCC2_ XOR PACKET %d %d\n", bcc2_, packet[i]);
-                            bcc2_ ^= packet[i];
-                        }
-                        printf("BCC2: %d\n", bcc2);
-                        printf("BCC2_: %d\n", bcc2_);
-                    
-                        if (bcc2 == bcc2_) { //aceite
-                            printf("BCC2 IGUAIS\n");
-                            if (frame_number == 0) {
-                                //mandar RR1
-                                int bytesW = writeBytesSerialPort(RR1, 5); 
-                                if (bytesW==-1) {
-                                    printf("ERROR\n");
-                                }
-                                printf("\nRR1 SENT\n");
-                                frame_number=1;
+        printf("BCC2 calculado: %d, BCC2 recebido: %d\n", bcc2_packet, bcc2);
 
-                            } else if (frame_number==1) {
-                                //mandar RR0
-                                int bytesW = writeBytesSerialPort(RR0, 5);
-                                if (bytesW==-1) {
-                                    printf("ERROR\n");
-                                }
-                                printf("\nRR0 SENT\n");
-                                frame_number=0; 
-                            }
-                            s=STOPP;
-                            return packet_size;
-                            
-                        } else {  //rejeitado
-                            printf("BCC2 DIFERENTES\n");
-                            if (frame_number == 0) {
-                                //mandar RJ0
-                                int bytesW = writeBytesSerialPort(REJ0, 5); 
-                                if (bytesW==-1) {
-                                    printf("ERROR\n");
-                                }
-                                printf("\nREJ0 SENT\n");
-                            } else if (frame_number==1) {
-                                //mandar RJ1
-                                int bytesW = writeBytesSerialPort(REJ1, 5); 
-                                if (bytesW==-1) {
-                                    printf("ERROR\n");
-                                }
-                                printf("\nREJ1 SENT\n");
-                            }
-                            return -1;
+        if (bcc2 == bcc2_packet) { // Pacote correto
+            printf("BCC2 corresponde, pacote aceito, enviando RR\n");
+            if (frame_number == 0) {
+                int bytesW = writeBytesSerialPort(RR1, 5); 
+                if (bytesW == -1) printf("Erro ao enviar RR1\n");
+                frame_number = 1;
+            } else {
+                int bytesW = writeBytesSerialPort(RR0, 5); 
+                if (bytesW == -1) printf("Erro ao enviar RR0\n");
+                frame_number = 0;
+            }
+            s = STOPP;
+            return packet_size;
 
-                        }
-                    } else { //guardar
-
-                        packet[size]=byteR;
-                        size++;
-                        s = DATA;
-
-                    } 
-                    break;
+        } else { // Pacote incorreto
+            printf("BCC2 diferente, pacote rejeitado, enviando REJ\n");
+            if (frame_number == 0) {
+                int bytesW = writeBytesSerialPort(REJ0, 5); 
+                if (bytesW == -1) printf("Erro ao enviar REJ0\n");
+            } else {
+                int bytesW = writeBytesSerialPort(REJ1, 5); 
+                if (bytesW == -1) printf("Erro ao enviar REJ1\n");
+            }
+            return -1;
+        }
+    } else if (byteR == ESC) { // Armazena byte no pacote
+        s = STOPP;
+    }
+    else{
+        packet[size++] = byteR;
+    }
+    break;
+    case STOPP:
+        s = DATA;
+        packet[size++] = byteR^0x20;
+        break;
                 default:
                     break;
             }
