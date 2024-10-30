@@ -58,13 +58,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             // File size
             printf("ADDING FILE SIZE\n");
             control_start[packet_size++] = 0; // file size T
-            control_start[packet_size++] = fileSize; // file size L
+            control_start[packet_size++] = sizeof(fileSize); // file size L
             printf("FILE SIZE L: 0x%02X\n", fileSize);
-            memcpy(&control_start[packet_size], &fileSize, fileSize); // file size V
+            memcpy(&control_start[packet_size], &fileSize, sizeof(fileSize)); // file size V
             packet_size += sizeof(fileSize);  //apontar para proxima posição
             printf("FILE SIZE V: ");
             for (int i = 0; i < sizeof(fileSize); i++) {
-                printf("0x%02X ", control_start[packet_size + i]); // Ajuste o índice conforme necessário
+                printf("0x%02X ", filename[i]); // Ajuste o índice conforme necessário
             }
             printf("\n");
 
@@ -136,86 +136,79 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             llclose(0);
             break;
         }
-        case (LlRx):
-        {
+        case (LlRx):{
 
-            unsigned char buffer[MAX_PAYLOAD_SIZE]={0};
-            int control_packet_received = 0;
-            FILE *file = NULL;
+            unsigned char* packet = malloc(MAX_PAYLOAD_SIZE);
+    int control_packet_received = 0;
+    FILE *file = NULL;
+    long fileSize = 0;
+    char received_filename[256] = {0};
 
-            while (1) {
-                printf("READING PACKET\n");
-                int length = llread(buffer);
-                if (length < 0) {
-                    printf("Erro ao ler pacote.\n");
-                    if (file) fclose(file);
-                    llclose(0);
-                    return;
-                }
-
-                // Identificar o tipo de pacote
-                unsigned char C = buffer[0];
-        
-                if (C == 1) { // Pacote de controle "start"
-                    control_packet_received = 1;
-                    int index = 1; // Começar após o campo de controle "C"
-
-                    long fileSize = 0;
-                    char received_filename[128] = {0};
-
-                    // Interpretar os parâmetros TLV
-                    while (index < length) {
-                        unsigned char T = buffer[index++];
-                        unsigned char L = buffer[index++];
-                        
-                        if (T == 0) { // Tamanho do arquivo
-                            memcpy(&fileSize, &buffer[index], L);
-                            index += L;
-                            printf("RECEIVED FILE SIZE L: 0x%02X\n", L);
-                        } else if (T == 1) { // Nome do arquivo
-                            memcpy(received_filename, &buffer[index], L);
-                            received_filename[L] = '\0';  // Adicionar terminador de string
-                            index += L;
-                        } else {
-                            printf("Parâmetro desconhecido T = %d\n", T);
-                            index += L; // Ignorar valores desconhecidos
-                        }
-                    }
-                    printf("Nome do arquivo recebido: %s\n", received_filename);
-
-                    // Abrir o arquivo para escrita
-                    file = fopen(received_filename, "wb");
-                    
-                    if (file == NULL) {
-                        printf("Erro ao abrir o arquivo %s para escrita.\n", received_filename);
-                        //llclose(0);
-                        return;
-                    }
-                    printf("Pacote de controle de início recebido: arquivo %s, tamanho %ld bytes.\n", received_filename, fileSize);
-
-                } /*else if (C == 2 && control_packet_received) { // Pacote de dados
-                    int sequence_number = buffer[1];
-                    int L2 = buffer[2];
-                    int L1 = buffer[3];
-                    int data_size = (L2 << 8) + L1;
-
-                    // Gravar os dados no ficheiro
-                    fwrite(buffer + 4, 1, data_size, file);
-                    printf("Pacote de dados recebido, sequência %d, tamanho %d bytes.\n", sequence_number, data_size);
-
-                } else if (C == 3 && control_packet_received) { // Pacote de controlo "end"
-                    printf("Pacote de controlo de término recebido.\n");
-                    break;
-                }*/
-            }
-            
+    while (1) {
+        int length = llread(packet);
+        if (length < 0) {
+            printf("Erro ao ler pacote.\n");
             if (file) fclose(file);
-            printf("CLOSING...\n");
             llclose(0);
+            free(packet);
+            return;
+        }
+
+        unsigned char C = packet[0]; // Campo de controle
+
+        if (C == 1 && !control_packet_received) { // Pacote de controle "start"
+            control_packet_received = 1;
+
+            // Processar pacote de controle de início e extrair informações
+            int index = 1;
+            while (index < length) {
+                unsigned char T = packet[index++];
+                unsigned char L = packet[index++];
+
+                if (T == 0) { // Tamanho do arquivo
+                    memcpy(&fileSize, &packet[index], L);
+                    index += L;
+                } else if (T == 1) { // Nome do arquivo
+                    memcpy(received_filename, &packet[index], L);
+                    received_filename[L] = '\0';
+                    index += L;
+                }
+            }
+
+            // Abrir o arquivo para escrita
+            file = fopen(received_filename, "wb");
+            if (file == NULL) {
+                printf("Erro ao abrir o ficheiro %s para escrita.\n", received_filename);
+                llclose(0);
+                free(packet);
+                return;
+            }
+            printf("Pacote de controle de início recebido: ficheiro %s, tamanho %ld bytes.\n", received_filename, fileSize);
+
+        } else if (C == 2 && control_packet_received) { // Pacote de dados
+            int sequence_number = packet[1];
+            int L2 = packet[2];
+            int L1 = packet[3];
+            int data_size = (L2 << 8) + L1;
+
+            // Gravar os dados no ficheiro
+            fwrite(packet + 4, 1, data_size, file);
+            printf("Pacote de dados recebido, sequência %d, tamanho %d bytes.\n", sequence_number, data_size);
+
+        } else if (C == 3 && control_packet_received) { // Pacote de controle "end"
+            printf("Pacote de controle de término recebido.\n");
             break;
+        }
+    }
+
+    if (file) fclose(file);
+    printf("CLOSING...\n");
+    llclose(0);
+    free(packet);
+    break;
+}
+
         }
 
 
     }
-
-}
