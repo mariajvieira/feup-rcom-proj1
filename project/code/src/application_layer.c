@@ -59,12 +59,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("ADDING FILE SIZE\n");
             control_start[packet_size++] = 0; // file size T
             control_start[packet_size++] = sizeof(fileSize); // file size L
-            printf("FILE SIZE L: 0x%02X\n", fileSize);
+            printf("FILE SIZE L: %d\n", (int)fileSize);
             memcpy(&control_start[packet_size], &fileSize, sizeof(fileSize)); // file size V
             packet_size += sizeof(fileSize);  //apontar para proxima posição
             printf("FILE SIZE V: ");
             for (int i = 0; i < sizeof(fileSize); i++) {
-                printf("0x%02X ", filename[i]); // Ajuste o índice conforme necessário
+                printf("0x%02X ", control_start[packet_size - sizeof(fileSize) + i]); // Ajuste o índice
             }
             printf("\n");
 
@@ -78,10 +78,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             memcpy(&control_start[packet_size], filename, name_length); // file name V
             packet_size += name_length; //apontar para proxima posição
             printf("FILE NAME V: ");
-            for (int i = 0; i < sizeof(name_length); i++) {
-                printf("0x%02X ", control_start[packet_size + i]); // Ajuste o índice conforme necessário
+            for (int i = 0; i < name_length; i++) {
+                printf("0x%02X ", control_start[packet_size - name_length + i]);
             }
             printf("\n");
+
 
 
             printf("SENDING START CONTROL PACKET\n");
@@ -96,17 +97,39 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
 
             // DATA PACKET
-            /*
-            unsigned char data_packet[256];
+
+            unsigned char data_packet[MAX_PAYLOAD_SIZE + 4];
             int sequence_number = 0;
-            size_t bytes_read;
-            while ((bytes_read = fread(data_packet + 4, 1, 256 - 4, file)) > 0) {
+            size_t bytes_read=0;
+            long bytes_remaining = fileSize;
+
+            rewind(file);
+
+            while (bytes_remaining > 0) {
+                printf("ENTERING WHILE BYTES REMAINING\n");
+                
+                size_t fragment_size = (bytes_remaining > MAX_PAYLOAD_SIZE) ? MAX_PAYLOAD_SIZE : bytes_remaining;
+
+                bytes_read = fread(data_packet + 4, 1, fragment_size, file);
+                printf("Bytes read: %zu\n", bytes_read);
+                if (bytes_read<fragment_size) {
+                    if (feof(file)) printf("FIM DO ARQUIVO\n");
+                    else if (ferror(file)) perror("erro a ler\n");
+                }
+                if (bytes_read <= 0) {
+                    printf("Erro ao ler do ficheiro.\n");
+                    fclose(file);
+                    llclose(0);
+                    return;
+                }
+
                 data_packet[0] = 2; // Campo C indicando "data"
                 data_packet[1] = sequence_number % 100; // Número de sequência
                 data_packet[2] = (bytes_read >> 8) & 0xFF; // L2 (parte alta do tamanho)
                 data_packet[3] = bytes_read & 0xFF; // L1 (parte baixa do tamanho)
 
                 // Enviar o pacote de dados
+                printf("SENDING DATA PACKET...\n");
                 if (llwrite(data_packet, bytes_read + 4) < 0) {
                     printf("Erro ao enviar pacote de dados.\n");
                     fclose(file);
@@ -114,10 +137,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     return;
                 }
                 sequence_number++;
+                bytes_remaining-=bytes_read;
             }
+
+            printf("All data packets sent successfully.\n");
 
 
             //CONTROL PACKET -- end of file
+            printf("CONTROL END PACKET ...\n");
             unsigned char control_end[256];
             memcpy(control_end, control_start, packet_size);
             control_end[0] = 3; // Campo C indicando "end"
@@ -130,7 +157,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("Pacote de controlo de término enviado.\n");
 
 
-*/
+
             fclose(file);
             printf("CLOSING...\n");
             llclose(0);
@@ -139,76 +166,75 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlRx):{
 
             unsigned char* packet = malloc(MAX_PAYLOAD_SIZE);
-    int control_packet_received = 0;
-    FILE *file = NULL;
-    long fileSize = 0;
-    char received_filename[256] = {0};
+            int control_packet_received = 0;
+            FILE *file = NULL;
+            long fileSize = 0;
+            char received_filename[256] = {0};
 
-    while (1) {
-        int length = llread(packet);
-        if (length < 0) {
-            printf("Erro ao ler pacote.\n");
-            if (file) fclose(file);
-            llclose(0);
-            free(packet);
-            return;
-        }
+            while (1) {
+                int length = llread(packet);
+                if (length < 0) {
+                    printf("Erro ao ler pacote.\n");
+                    if (file) fclose(file);
+                    llclose(0);
+                    free(packet);
+                    return;
+                }
 
-        unsigned char C = packet[0]; // Campo de controle
+                unsigned char C = packet[0]; // Campo de controle
 
-        if (C == 1 && !control_packet_received) { // Pacote de controle "start"
-            control_packet_received = 1;
+                if (C == 1 && !control_packet_received) { // Pacote de controle "start"
+                    control_packet_received = 1;
 
-            // Processar pacote de controle de início e extrair informações
-            int index = 1;
-            while (index < length) {
-                unsigned char T = packet[index++];
-                unsigned char L = packet[index++];
+                    // Processar pacote de controle de início e extrair informações
+                    int index = 1;
+                    while (index < length) {
+                        unsigned char T = packet[index++];
+                        unsigned char L = packet[index++];
 
-                if (T == 0) { // Tamanho do arquivo
-                    memcpy(&fileSize, &packet[index], L);
-                    index += L;
-                } else if (T == 1) { // Nome do arquivo
-                    memcpy(received_filename, &packet[index], L);
-                    received_filename[L] = '\0';
-                    index += L;
+                        if (T == 0) { // Tamanho do arquivo
+                            memcpy(&fileSize, &packet[index], L);
+                            index += L;
+                        } else if (T == 1) { // Nome do arquivo
+                            memcpy(received_filename, &packet[index], L);
+                            received_filename[L] = '\0';
+                            index += L;
+                        }
+                    }
+
+                    // Abrir o arquivo para escrita
+                    file = fopen("penguin_received.gif", "wb");
+                    if (file == NULL) {
+                        printf("Erro ao abrir o ficheiro %s para escrita.\n", received_filename);
+                        llclose(0);
+                        free(packet);
+                        return;
+                    }
+                    printf("Pacote de controle de início recebido: ficheiro %s, tamanho %ld bytes.\n", received_filename, fileSize);
+
+                } else if (C == 2 && control_packet_received) { // Pacote de dados
+                    int sequence_number = packet[1];
+                    int L2 = packet[2];
+                    int L1 = packet[3];
+                    int data_size = (L2 << 8) + L1;
+
+                    // Gravar os dados no ficheiro
+                    fwrite(packet + 4, 1, data_size, file);
+                    printf("Pacote de dados recebido, sequência %d, tamanho %d bytes.\n", sequence_number, data_size);
+
+
+
+                } else if (C == 3 && control_packet_received) { // Pacote de controle "end"
+                    printf("Pacote de controle de término recebido.\n");
+                    break;
                 }
             }
 
-            // Abrir o arquivo para escrita
-            file = fopen(received_filename, "wb");
-            if (file == NULL) {
-                printf("Erro ao abrir o ficheiro %s para escrita.\n", received_filename);
-                llclose(0);
-                free(packet);
-                return;
-            }
-            printf("Pacote de controle de início recebido: ficheiro %s, tamanho %ld bytes.\n", received_filename, fileSize);
-
-        } else if (C == 2 && control_packet_received) { // Pacote de dados
-            int sequence_number = packet[1];
-            int L2 = packet[2];
-            int L1 = packet[3];
-            int data_size = (L2 << 8) + L1;
-
-            // Gravar os dados no ficheiro
-            fwrite(packet + 4, 1, data_size, file);
-            printf("Pacote de dados recebido, sequência %d, tamanho %d bytes.\n", sequence_number, data_size);
-
-        } else if (C == 3 && control_packet_received) { // Pacote de controle "end"
-            printf("Pacote de controle de término recebido.\n");
+            if (file) fclose(file);
+            printf("CLOSING...\n");
+            llclose(0);
+            free(packet);
             break;
         }
     }
-
-    if (file) fclose(file);
-    printf("CLOSING...\n");
-    llclose(0);
-    free(packet);
-    break;
 }
-
-        }
-
-
-    }

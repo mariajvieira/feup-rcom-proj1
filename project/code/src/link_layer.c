@@ -327,7 +327,7 @@ int llwrite(const unsigned char *buf, int bufSize){
             
             switch(s) {
                 case START:
-                    printf("ENTERED SWITCH, STATE START\n");
+                    //printf("ENTERED SWITCH, STATE START\n");
                     if (read == FLAG) s = FLAG_RCV;
                     break;
                 case FLAG_RCV:
@@ -350,7 +350,7 @@ int llwrite(const unsigned char *buf, int bufSize){
                     else s = START;
                     break;
                 case C_RCV:
-                    if (read == (A_R ^ helper)) s = BCC_OK;
+                    if (read == (A_T ^ helper)) s = BCC_OK;
                     else if (read == FLAG) s = FLAG_RCV;
                     else s = START;
                     break;
