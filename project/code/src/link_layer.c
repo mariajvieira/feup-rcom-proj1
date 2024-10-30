@@ -291,7 +291,6 @@ int llwrite(const unsigned char *buf, int bufSize){
     size = stuff(stuffed,frame,size);
     stuffed[size] = FLAG;
     size++;
-    stuffed[size]='\0';
 
     int ack = 0;
     int rej = 0 ;
@@ -319,7 +318,7 @@ int llwrite(const unsigned char *buf, int bufSize){
         printf("Written %d bytes \n", bytesW);
 
         while((ack == 0 && rej == 0 && alarmEnabled) && !STOP) {
-            printf("ENTERED WHILE\n");
+            //printf("ENTERED WHILE\n");
             int bytesR = readByteSerialPort(&read);  //receive feedback
             if (bytesR == 0) {
                 //printf("NO BYTES READ\n");
@@ -333,7 +332,7 @@ int llwrite(const unsigned char *buf, int bufSize){
                     break;
                 case FLAG_RCV:
                     if (read == FLAG) s = FLAG_RCV;
-                    else if (read == A_R) s = A_RCV;                        
+                    else if (read == A_T) s = A_RCV;                        
                     else s = START;
                     break;
                 case A_RCV:
