@@ -287,7 +287,7 @@ int llwrite(const unsigned char *buf, int bufSize){
 
     frame[pos] = bcc2_tx;  //adiciona BCC2 à frame
     
-    unsigned char stuffed[MAX_PAYLOAD_SIZE]={0};  
+    unsigned char stuffed[size*2];  
     size = stuff(stuffed,frame,size);
     stuffed[size] = FLAG;
     size++;
@@ -366,10 +366,10 @@ int llwrite(const unsigned char *buf, int bufSize){
                     break;
             }
         }
-
+/*
         for (int i=0; i<size; i++) {
             printf("FRAME TO SEND: 0x%02X\n", frame[i]);
-        }
+        }*/
         printf("REJ IS %d\n", rej);
         printf("ACK IS %d\n", ack);
         if (ack==1) return size;
@@ -385,9 +385,10 @@ int llwrite(const unsigned char *buf, int bufSize){
 
 unsigned char generatebcc2(const unsigned char* data, int data_size){
     unsigned char bcc2 = data[0];
-    printf("BCC2 POSIÇÃO 0: 0x%02X\n", bcc2);
+    //printf("BCC2 POSIÇÃO 0: 0x%02X\n", bcc2);
     for(int i = 0 ; i < data_size-1 ; i++){
-        printf("BCC2 POSIÇÃO %d: 0x%02X  XOR COM PACKET 0x%02X\n", i, bcc2, data[i]);
+        
+        //printf("BCC2 POSIÇÃO %d: 0x%02X  XOR COM PACKET 0x%02X\n", i, bcc2, data[i]);
         if (i>0) bcc2 ^= data[i];
     }
     printf("RESULTADO BCC2: 0x%02X\n", bcc2);
@@ -400,7 +401,7 @@ int llread(unsigned char *packet)
     alarmcount = 0;
     int packet_size=0;
     
-    memset(packet, 0, MAX_PAYLOAD_SIZE);
+    
     unsigned char read[MAX_PAYLOAD_SIZE] = {0};
     unsigned char RR1[5]={FLAG, A_T, C_RR1, A_T^C_RR1, FLAG};
     unsigned char RR0[5]={FLAG, A_T, C_RR0, A_T^C_RR0, FLAG};;
@@ -474,7 +475,7 @@ int llread(unsigned char *packet)
                                 return -1;
                             }
                         
-                            unsigned char destuffed[MAX_PAYLOAD_SIZE];
+                            unsigned char destuffed[MAX_PAYLOAD_SIZE+4];
                             packet_size = destuff(destuffed, packet, size);
                             memcpy(packet, destuffed, packet_size);
 
@@ -528,7 +529,7 @@ int llread(unsigned char *packet)
                         }
                     }
                     else{
-                        packet[size++] = byteR;
+                        packet[size++] = byteR; // Collect data bytes
                         s=DATA;
                     }
                     break;

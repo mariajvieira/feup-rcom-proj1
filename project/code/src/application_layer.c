@@ -165,7 +165,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
         case (LlRx):{
 
-            unsigned char* packet = malloc(MAX_PAYLOAD_SIZE);
+            unsigned char packet[1024]={0};
+            if (packet == NULL) {
+                printf("Erro ao alocar memória para o pacote.\n");
+                llclose(0);
+                return;
+            }
             int control_packet_received = 0;
             FILE *file = NULL;
             long fileSize = 0;
@@ -221,7 +226,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     // Gravar os dados no ficheiro
                     fwrite(packet + 4, 1, data_size, file);
                     printf("Pacote de dados recebido, sequência %d, tamanho %d bytes.\n", sequence_number, data_size);
-
+                  
 
 
                 } else if (C == 3 && control_packet_received) { // Pacote de controle "end"
@@ -231,9 +236,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             }
 
             if (file) fclose(file);
+            
+            //free(packet);
             printf("CLOSING...\n");
             llclose(0);
-            free(packet);
+            
             break;
         }
     }
