@@ -45,6 +45,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             // VER TAMANHO DO FICHEIRO
             fseek(file, 0, SEEK_END);
             long int fileSize = ftell(file);
+            printf("Tamanho do arquivo: %ld bytes\n", fileSize);
             fseek(file, 0, SEEK_SET);
 
             //CONTROL PACKET -- start of file
@@ -58,8 +59,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("ADDING FILE SIZE\n");
             control_start[packet_size++] = 0; // file size T
             control_start[packet_size++] = sizeof(fileSize); // file size L
+            printf("FILE SIZE L: 0x%02X", control_start[packet_size]);
             memcpy(&control_start[packet_size], &fileSize, sizeof(fileSize)); // file size V
             packet_size += sizeof(fileSize);  //apontar para proxima posição
+            printf("FILE SIZE V: 0x%02X", control_start[packet_size++]);
+
 
             // File name
             printf("ADDING FILE NAME\n");
