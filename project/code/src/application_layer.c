@@ -49,7 +49,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             //CONTROL PACKET -- start of file
 
-            unsigned char control_start[256]={0};
+            unsigned char control_start[MAX_PAYLOAD_SIZE]={0};
             int packet_size = 0;
 
             control_start[packet_size++] = 1; // Control field "start"
@@ -82,6 +82,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
 
             // DATA PACKET
+            /*
             unsigned char data_packet[256];
             int sequence_number = 0;
             size_t bytes_read;
@@ -115,7 +116,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             printf("Pacote de controlo de término enviado.\n");
 
 
-
+*/
             fclose(file);
             printf("CLOSING...\n");
             llclose(0);
@@ -124,7 +125,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlRx):
         {
 
-            unsigned char buffer[256]={0};
+            unsigned char buffer[MAX_PAYLOAD_SIZE]={0};
             int control_packet_received = 0;
             FILE *file = NULL;
 
@@ -140,33 +141,42 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
                 // Identificar o tipo de pacote
                 unsigned char C = buffer[0];
-                
-                if (C == 1) { // Pacote de controlo "start"
+        
+                if (C == 1) { // Pacote de controle "start"
                     control_packet_received = 1;
+                    int index = 1; // Começar após o campo de controle "C"
 
-                    // Extrair o tamanho do ficheiro
                     long fileSize = 0;
-                    int index = 2; // Começar após C e T do tamanho
-                    int size_length = buffer[index++];
-                    memcpy(&fileSize, &buffer[index], size_length);
-                    index += size_length;
+                    char received_filename[128] = {0};
 
-                    // Extrair o nome do ficheiro
-                    int name_length = buffer[index + 1];
-                    char received_filename[128];
-                    memcpy(received_filename, &buffer[index + 2], name_length);
-                    received_filename[name_length] = '\0';
+                    // Interpretar os parâmetros TLV
+                    while (index < length) {
+                        unsigned char T = buffer[index++];
+                        unsigned char L = buffer[index++];
+                        
+                        if (T == 0) { // Tamanho do arquivo
+                            memcpy(&fileSize, &buffer[index], L);
+                            index += L;
+                        } else if (T == 1) { // Nome do arquivo
+                            memcpy(received_filename, &buffer[index], L);
+                            received_filename[L] = '\0';  // Adicionar terminador de string
+                            index += L;
+                        } else {
+                            printf("Parâmetro desconhecido T = %d\n", T);
+                            index += L; // Ignorar valores desconhecidos
+                        }
+                    }
 
-                    // Abrir o ficheiro para escrita
+                    // Abrir o arquivo para escrita
                     file = fopen(received_filename, "wb");
                     if (file == NULL) {
-                        printf("Erro ao abrir o ficheiro %s para escrita.\n", received_filename);
+                        printf("Erro ao abrir o arquivo %s para escrita.\n", received_filename);
                         llclose(0);
                         return;
                     }
-                    printf("Pacote de controlo de início recebido: ficheiro %s, tamanho %ld bytes.\n", received_filename, fileSize);
+                    printf("Pacote de controle de início recebido: arquivo %s, tamanho %ld bytes.\n", received_filename, fileSize);
 
-                } else if (C == 2 && control_packet_received) { // Pacote de dados
+                } /*else if (C == 2 && control_packet_received) { // Pacote de dados
                     int sequence_number = buffer[1];
                     int L2 = buffer[2];
                     int L1 = buffer[3];
@@ -179,7 +189,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 } else if (C == 3 && control_packet_received) { // Pacote de controlo "end"
                     printf("Pacote de controlo de término recebido.\n");
                     break;
-                }
+                }*/
             }
             
             if (file) fclose(file);
