@@ -101,7 +101,7 @@ int llopen(LinkLayer connectionParameters)
 
                 while (alarmEnabled && !STOP){
                     int bytesR_T = readByteSerialPort(receiveT); //read in serial port
-                    if (bytesR_T == 0) continue ; //if no byte was received, continue
+                    if (bytesR_T <= 0) continue ; //if no byte was received, continue
 
                     unsigned char byteT = receiveT[0];
                     switch (s) 
@@ -156,6 +156,7 @@ int llopen(LinkLayer connectionParameters)
                 alarmcount++;
             
             }
+
             if (STOP) return 1;
             else return 0;
         }
@@ -167,7 +168,7 @@ int llopen(LinkLayer connectionParameters)
             unsigned char ua[BUF_SIZE] = {FLAG, A_R, C_UA, A_R ^ C_UA, FLAG};
             while (!STOP) {
                 int bytesR_R = readByteSerialPort(receiveR);
-                if (bytesR_R==0) continue;
+                if (bytesR_R<=0) continue;
 
                 unsigned char byteR = receiveR[0]; 
                 switch (s) 
@@ -374,10 +375,7 @@ int llwrite(const unsigned char *buf, int bufSize){
                     break;
             }
         }
-/*
-        for (int i=0; i<size; i++) {
-            printf("FRAME TO SEND: 0x%02X\n", frame[i]);
-        }*/
+
         printf("REJ IS %d\n", rej);
         printf("ACK IS %d\n", ack);
         if (ack==1) return size;
@@ -406,6 +404,7 @@ unsigned char generatebcc2(const unsigned char* data, int data_size){
     return bcc2;
 }
 
+/*
 int llread(unsigned char *packet)
 {
     printf("Entered llread\n");
@@ -437,7 +436,7 @@ int llread(unsigned char *packet)
 
         while (alarmEnabled && !STOP){
             int bytesR = readByteSerialPort(read);
-            if (bytesR == 0) {
+            if (bytesR <= 0) {
                 //printf("NO BYTES READ LLREAD\n");
                 continue;
             }
@@ -552,6 +551,124 @@ int llread(unsigned char *packet)
     }
     return -1;
 }
+*/
+
+
+int llread(unsigned char *packet)
+{
+    printf("Entered llread\n");
+    alarmcount = 0;
+    int packet_size = 0;
+    unsigned char read[MAX_PAYLOAD_SIZE] = {0};
+    unsigned char RR1[5] = {FLAG, A_T, C_RR1, A_T ^ C_RR1, FLAG};
+    unsigned char RR0[5] = {FLAG, A_T, C_RR0, A_T ^ C_RR0, FLAG};
+    unsigned char REJ1[5] = {FLAG, A_T, C_REJ1, A_T ^ C_REJ1, FLAG};
+    unsigned char REJ0[5] = {FLAG, A_T, C_REJ0, A_T ^ C_REJ0, FLAG};
+    unsigned char n;
+    unsigned char bcc2_packet = 0;
+    unsigned char bcc2 = 0;
+    int size = 0;
+    s = START;
+
+    (void)signal(SIGALRM, alarmHandler);
+    
+    while (1) {  // Loop to retry reading packets
+        alarmEnabled = TRUE;
+        STOP = FALSE;
+        alarm(timeout);
+        size = 0;
+
+        while (alarmEnabled && !STOP) {
+            int bytesR = readByteSerialPort(read);
+            if (bytesR <= 0) {
+                continue; // No bytes read
+            }
+
+            unsigned char byteR = read[0];
+
+            switch (s) {
+                case START:
+                    if (byteR == FLAG) s = FLAG_RCV;
+                    break;
+                case FLAG_RCV:
+                    if (byteR == FLAG) s = FLAG_RCV;
+                    else if (byteR == A_T) s = A_RCV;                        
+                    else s = START;
+                    break;       
+                case A_RCV:
+                    if (byteR == C_I0 || byteR == C_I1) {
+                        s = C_RCV;
+                        frame_number = (byteR == C_I0) ? 0 : 1;
+                        n = byteR;
+                    } else if (byteR == FLAG) s = FLAG_RCV;
+                    else s = START;
+                    break;    
+                case C_RCV:
+                    if (byteR == (A_T ^ n)) s = DATA;
+                    else if (byteR == FLAG) s = FLAG_RCV;
+                    else s = START;
+                    break;
+                case DATA:
+                    if (byteR == FLAG) {  // Frame completed
+                        printf("Frame detected as complete, size: %d\n", size);
+
+                        if (size < 1) { 
+                            printf("Error: Incomplete packet, size: %d\n", size);
+                            return -1;
+                        }
+
+                        unsigned char destuffed[MAX_PAYLOAD_SIZE + 4];
+                        packet_size = destuff(destuffed, packet, size);
+                        memcpy(packet, destuffed, packet_size);
+
+                        bcc2 = packet[packet_size - 2];
+                        packet_size--;
+                        packet[size] = '\0';
+
+                        bcc2_packet = generatebcc2(packet, packet_size);
+
+                        printf("BCC2 calculated: 0x%02X, BCC2 received: 0x%02X\n", bcc2_packet, bcc2);
+
+                        if (bcc2 == bcc2_packet) { // Valid packet
+                            printf("BCC2 matches, accepting packet, sending RR\n");
+                            if (frame_number == 0) {
+                                writeBytesSerialPort(RR1, 5);
+                                frame_number = 1;
+                                printf("RR1\n");
+                            } else {
+                                writeBytesSerialPort(RR0, 5);
+                                frame_number = 0;
+                                printf("RR0\n");
+                            }
+                            return packet_size; // Return valid packet size
+                        } else { // Invalid packet, send REJ
+                            printf("BCC2 mismatch, packet rejected, sending REJ\n");
+                            if (frame_number == 0) {
+                                writeBytesSerialPort(REJ0, 5);
+                            } else {
+                                writeBytesSerialPort(REJ1, 5);
+                            }
+                            break; // Exit to retry receiving a packet
+                        }
+                    } else {
+                        packet[size++] = byteR; // Collect data bytes
+                        s = DATA;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // Handle timeout or other conditions if needed
+        if (alarmcount >= ret) {
+            printf("Timeout reached, retrying...\n");
+            alarmcount = 0; // Reset for next attempt
+        }
+    }
+    
+    return -1; // In case of failure after all retries
+}
 
 ////////////////////////////////////////////////
 // LLCLOSE
@@ -589,7 +706,7 @@ int llclose(int showStatistics)
                 while (alarmEnabled==TRUE && !STOP) {
                     int bytesR_DISC = readByteSerialPort(receiveDISC);
                     //printf("\nDISC message sent, %d bytes written\n", bytesR_DISC);
-                    if (bytesR_DISC == 0) continue;
+                    if (bytesR_DISC <= 0) continue;
                     unsigned char byteR_DISC = receiveDISC[0]; 
 
                     switch (s) 
@@ -659,7 +776,7 @@ int llclose(int showStatistics)
             while (alarmcount<ret && !STOP) {
                 while (alarmEnabled==FALSE && !STOP) {
                     int bytesR_DISC = readByteSerialPort(receiveDISC);
-                    if (bytesR_DISC==0) continue;
+                    if (bytesR_DISC<=0) continue;
 
                     unsigned char byteR_DISC = receiveDISC[0]; 
 
@@ -723,7 +840,7 @@ int llclose(int showStatistics)
             while (alarmcount<ret && !STOP) {
                 while (!alarmEnabled && !STOP) {
                     int bytesR_UA = readByteSerialPort(receiveUA);
-                    if (bytesR_UA==0) continue;
+                    if (bytesR_UA<=0) continue;
 
                     unsigned char byteR_UA = receiveUA[0]; 
 

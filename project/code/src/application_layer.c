@@ -29,7 +29,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     llopen(test);
 
 
-
     switch(test.role) {
         case (LlTx):
         {
@@ -182,7 +181,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     printf("Erro ao ler pacote.\n");
                     if (file) fclose(file);
                     llclose(0);
-                    free(packet);
                     return;
                 }
 
@@ -208,11 +206,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     }
 
                     // Abrir o arquivo para escrita
-                    file = fopen("penguin_received.gif", "wb");
+                    file = fopen(filename, "wb");
                     if (file == NULL) {
                         printf("Erro ao abrir o ficheiro %s para escrita.\n", received_filename);
                         llclose(0);
-                        free(packet);
                         return;
                     }
                     printf("Pacote de controle de início recebido: ficheiro %s, tamanho %ld bytes.\n", received_filename, fileSize);
@@ -237,7 +234,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             if (file) fclose(file);
             
-            //free(packet);
             printf("CLOSING...\n");
             llclose(0);
             
