@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
 
 #define BUF_SIZE 5
 #define FLAG 0x7E
@@ -31,9 +32,11 @@ int ret, timeout;
 int fd2;
 LinkLayer info;
 int frame_number;
-
+int retransmissions = 0, timeout_v ;
 typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK, DATA, STOPP} States;
 States s;
+
+struct timespec start, end;
 
 
 void alarmHandler(int signal)
@@ -60,6 +63,7 @@ int llopen(LinkLayer connectionParameters)
         perror(connectionParameters.serialPort);
         exit(-1);
     }
+  
 
     timeout = connectionParameters.timeout;
     ret = connectionParameters.nRetransmissions;
@@ -77,6 +81,8 @@ int llopen(LinkLayer connectionParameters)
             unsigned char buf [BUF_SIZE] = {0};
             unsigned char receiveT[BUF_SIZE] = {0};
 
+            clock_gettime(CLOCK_REALTIME,&start);
+
             buf[0] = FLAG;
             buf[1] = A_T;
             buf[2] = C_SET;
@@ -87,7 +93,8 @@ int llopen(LinkLayer connectionParameters)
                 if (!alarmEnabled){
                     int bytesW = writeBytesSerialPort(buf, 5); //send SET in serial port
                     printf("SET SENT: %d bytes written\n", bytesW);
-                    alarm(timeout);            
+                    alarm(timeout);
+                    timeout_v++;          
                     alarmEnabled = TRUE;
                 }
 
@@ -304,6 +311,7 @@ int llwrite(const unsigned char *buf, int bufSize){
         s = START;
         alarmEnabled = TRUE;
         alarm(timeout);
+        timeout_v++;
         ack = 0;
         rej = 0;
 
@@ -373,7 +381,10 @@ int llwrite(const unsigned char *buf, int bufSize){
         printf("REJ IS %d\n", rej);
         printf("ACK IS %d\n", ack);
         if (ack==1) return size;
-        if (rej==1) alarmcount++;
+        if (rej==1 || alarmcount > 0) {
+            alarmcount++;
+            retransmissions++;
+        }
     }
     return -1;
 }
@@ -421,6 +432,7 @@ int llread(unsigned char *packet)
         alarmEnabled = TRUE;
         STOP=FALSE;
         alarm(timeout);
+        timeout_v++;
         size=0;
 
         while (alarmEnabled && !STOP){
@@ -568,6 +580,7 @@ int llclose(int showStatistics)
                     int bytesW_DISC = writeBytesSerialPort(DISC, 5);  //SEND DISC
                     printf("Written %d bytes \n", bytesW_DISC);
                     alarm(timeout);
+                    timeout_v++;
                     alarmEnabled=TRUE;
                     printf("DISC SENT first time!\n");
                 }
@@ -774,6 +787,14 @@ int llclose(int showStatistics)
     }
 
     int clstat = closeSerialPort();
+
+    clock_gettime(CLOCK_REALTIME, &end);
+    double elapsed = end.tv_sec-start.tv_sec + (end.tv_nsec-start.tv_nsec)/1e9;
+    printf("----Show Statistics---- \n");
+    printf("Elapsed time: %f seconds \n", elapsed);
+    printf("Number of retransmissions: %d\n", retransmissions);
+    printf("Number of timeouts: %d\n", timeout_v);
+    
     return clstat;
 }
 
