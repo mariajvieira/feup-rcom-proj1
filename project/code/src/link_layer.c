@@ -35,6 +35,7 @@ int frame_number;
 int retransmissions = 0, timeout_v ;
 typedef enum {START,FLAG_RCV, A_RCV, C_RCV, BCC_OK, DATA, STOPP} States;
 States s;
+int rec, sended = 0;
 
 struct timespec start, end;
 
@@ -317,7 +318,8 @@ int llwrite(const unsigned char *buf, int bufSize){
         rej = 0;
 
         STOP = FALSE;
-        int bytesW = writeBytesSerialPort(stuffed, size); //send information frame
+        int bytesW = writeBytesSerialPort(stuffed, size); //send information frame~
+        sended += bufSize*8;
         if (bytesW==-1) {
             printf("ERROR\n");
         }
@@ -374,6 +376,11 @@ int llwrite(const unsigned char *buf, int bufSize){
                 default:
                     s = START;
                     break;
+            }
+            if (!helper) continue;
+            else if (helper == C_RR0 || helper == C_RR1){
+                ack= 1;
+                rec += bufSize * 8;
             }
         }
 
@@ -763,7 +770,9 @@ int llclose(int showStatistics)
     printf("----Show Statistics---- \n");
     printf("Elapsed time: %f seconds \n", elapsed);
     printf("Number of retransmissions: %d\n", retransmissions);
-
+    printf("Recieved bits per second %f \n", rec/elapsed);
+    printf("Sended bits per second: %f \n", sended/elapsed);
+    printf("Transference time: %f \n", (rec/elapsed)/(sended/elapsed));
 
     return clstat;
 }
