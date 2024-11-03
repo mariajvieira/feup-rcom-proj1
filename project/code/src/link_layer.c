@@ -329,6 +329,7 @@ int llwrite(const unsigned char *buf, int bufSize){
         while((ack == 0 && rej == 0 && alarmEnabled) && !STOP) {
             //printf("ENTERED WHILE\n");
             int bytesR = readByteSerialPort(&read);  //receive feedback
+       
             if (bytesR == 0) {
                 //printf("NO BYTES READ\n");
                 continue;
@@ -378,7 +379,9 @@ int llwrite(const unsigned char *buf, int bufSize){
 
         printf("REJ IS %d\n", rej);
         printf("ACK IS %d\n", ack);
-        if (ack==1) return size;
+        if (ack==1){
+            return size;
+        } 
         if (rej==1 || alarmcount > 0) {
             alarmcount++;
             retransmissions++;
@@ -403,156 +406,6 @@ unsigned char generatebcc2(const unsigned char* data, int data_size){
     printf("RESULTADO BCC2: 0x%02X\n", bcc2);
     return bcc2;
 }
-
-/*
-int llread(unsigned char *packet)
-{
-    printf("Entered llread\n");
-    alarmcount = 0;
-    int packet_size=0;
-    
-    
-    unsigned char read[MAX_PAYLOAD_SIZE] = {0};
-    unsigned char RR1[5]={FLAG, A_T, C_RR1, A_T^C_RR1, FLAG};
-    unsigned char RR0[5]={FLAG, A_T, C_RR0, A_T^C_RR0, FLAG};;
-    unsigned char REJ1[5]={FLAG, A_T, C_REJ1, A_T^C_REJ1, FLAG};;
-    unsigned char REJ0[5]={FLAG, A_T, C_REJ0, A_T^C_REJ0, FLAG};
-    unsigned char n;
-    unsigned char bcc2_packet = 0;
-    unsigned char bcc2 = 0;
-    int size=0;
-    s = START;
-
-
-    (void) signal (SIGALRM, alarmHandler);
-
-    while (alarmcount < ret){
-        //printf("ENTERED FIRST WHILE");
-        alarmEnabled = TRUE;
-        STOP=FALSE;
-        alarm(timeout);
-        timeout_v++;
-        size=0;
-
-        while (alarmEnabled && !STOP){
-            int bytesR = readByteSerialPort(read);
-            if (bytesR <= 0) {
-                //printf("NO BYTES READ LLREAD\n");
-                continue;
-            }
-            //printf("Read %d bytes \n", bytesR);
-
-            unsigned char byteR = read[0];
-            
-            //printf("BYtE READ : %d\n", byteR);
-
-            // START, FLAG, A, CONTROL, BCC1, DATA, BCC2, FLAG
-            switch (s) {
-                case START:
-                    //printf("ENTERED SWITCH S=START\n");
-                    if (byteR == FLAG) s = FLAG_RCV;
-                    break;
-                case FLAG_RCV:
-                    if (byteR == FLAG) s = FLAG_RCV;
-                    else if (byteR == A_T) s = A_RCV;                        
-                    else s = START;
-                    break;       
-                case A_RCV:
-                    if (byteR == C_I0) {
-                        s = C_RCV;
-                        frame_number = 0;
-                        n = byteR;
-                    } else if (byteR==C_I1) {
-                        s = C_RCV;
-                        frame_number = 1;
-                        n = byteR;
-
-                    } else if (byteR == FLAG) s = FLAG_RCV;
-                    else s = START;
-                    break;    
-                case C_RCV:
-                    if (byteR == (A_T ^ n)) s = DATA;
-                    else if (byteR == FLAG) s = FLAG_RCV;
-                    else s = START;
-                    break;
-                case DATA:
-
-                    if (byteR == FLAG) {  // Frame terminou
-                        printf("Frame detectado como completo, tamanho: %d\n", size);
-
-                        if (size > 0) { 
-                            if (size < 1) { 
-                                printf("Erro: Pacote incompleto, tamanho: %d\n", size);
-                                return -1;
-                            }
-                        
-                            unsigned char destuffed[MAX_PAYLOAD_SIZE+4];
-                            packet_size = destuff(destuffed, packet, size);
-                            memcpy(packet, destuffed, packet_size);
-
-                            bcc2 = packet[packet_size-2];
-                            packet_size--;
-                            packet[size] = '\0';
-
-                            bcc2_packet = generatebcc2(packet,packet_size);
-
-
-
-                        } else {
-                            printf("Erro: Tamanho do pacote inválido\n");
-                            return -1;
-                        }
-
-
-                        if (packet_size <= 0) {
-                            printf("Erro ao processar destuffing, tamanho incorreto\n");
-                            return -1;
-                        }
-
-                        printf("BCC2 calculado: 0x%02X, BCC2 recebido: 0x%02X\n", bcc2_packet, bcc2);
-
-                        if (bcc2 == bcc2_packet) { // Pacote correto
-                            printf("BCC2 corresponde, pacote aceite, enviando RR\n");
-                            if (frame_number == 0) {
-                                int bytesW = writeBytesSerialPort(RR1, 5); 
-                                if (bytesW == -1) printf("Erro ao enviar RR1\n");
-                                frame_number = 1;
-                                printf("RR1\n");
-                            } else {
-                                int bytesW = writeBytesSerialPort(RR0, 5); 
-                                if (bytesW == -1) printf("Erro ao enviar RR0\n");
-                                frame_number = 0;
-                                printf("RR0\n");
-                            }
-                            s = STOPP;
-                            return packet_size;
-
-                        } else { // Pacote incorreto
-                            printf("BCC2 diferente, pacote rejeitado, enviando REJ\n");
-                            if (frame_number == 0) {
-                                int bytesW = writeBytesSerialPort(REJ0, 5); 
-                                if (bytesW == -1) printf("Erro ao enviar REJ0\n");
-                            } else {
-                                int bytesW = writeBytesSerialPort(REJ1, 5); 
-                                if (bytesW == -1) printf("Erro ao enviar REJ1\n");
-                            }
-                            return -1;
-                        }
-                    }
-                    else{
-                        packet[size++] = byteR; // Collect data bytes
-                        s=DATA;
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-    return -1;
-}
-*/
-
 
 int llread(unsigned char *packet)
 {
@@ -910,8 +763,7 @@ int llclose(int showStatistics)
     printf("----Show Statistics---- \n");
     printf("Elapsed time: %f seconds \n", elapsed);
     printf("Number of retransmissions: %d\n", retransmissions);
-    printf("Number of timeouts: %d\n", timeout_v);
-    
+
+
     return clstat;
 }
-
