@@ -13,9 +13,7 @@
 - Programming language – C
 - Serial port RS-232 (asynchronous communication)
 
-
-
-Report: 
+Report: [Link to Report](Maria_Rodrigo_T05%20(1).pdf)
 
 
 
