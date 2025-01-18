@@ -1,6 +1,7 @@
 # RC - Computer Networks
 
 ## Data Link Protocol Project
+### Grade 15.8/20
 
 #### Goals
 - Implement a data link layer protocol, according to the specification provided: this protocol implements transmitter and receiver functionality to transfer a file stored on a computer hard disk between computers connected through a RS-232 serial cable
